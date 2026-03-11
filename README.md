@@ -40,7 +40,7 @@ ollama pull qwen2.5vl:72b
 **2. Clone the Base NVIDIA Repository**
 
 ```bash
-git clone [https://github.com/nvidia-ai-iot/live-vlm-webui.git](https://github.com/nvidia-ai-iot/live-vlm-webui.git)
+git clone https://github.com/nvidia-ai-iot/live-vlm-webui.git
 cd live-vlm-webui
 python3 -m venv venv
 source venv/bin/activate
