@@ -1,0 +1,19 @@
+# Ignore the base NVIDIA repository folder
+live-vlm-webui/
+
+# Ignore Python virtual environments
+venv/
+env/
+.env
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore Windows system files
+Thumbs.db
+desktop.ini
+
+# Ignore IDE configuration folders (if you use VS Code)
+.vscode/
