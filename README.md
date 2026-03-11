@@ -51,6 +51,7 @@ Instead of manually editing the NVIDIA repository, run the included Python patch
 Ensure you are in the directory containing `apply_patches.py` and run:
 ```bash
 python3 apply_patches.py
+```
 
 **4. Install the Launchers**
 
