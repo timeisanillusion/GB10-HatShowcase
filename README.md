@@ -44,10 +44,13 @@ pip install -e .
 
 ```
 
-**3. Apply the Patches**
 
-* **HTML:** Open the base repo's main HTML template and wrap the `<video>` tag with the code found in `index_patch.html`.
-* **JavaScript:** Inject the contents of `canvas_overlay.js` into the base repo's main frontend script to handle the frame throttling and box rendering.
+**3. Apply the Patches**
+Instead of manually editing the NVIDIA repository, run the included Python patcher to automatically inject the HTML canvas and JavaScript drawing logic.
+
+Ensure you are in the directory containing `apply_patches.py` and run:
+```bash
+python3 apply_patches.py
 
 **4. Install the Launchers**
 

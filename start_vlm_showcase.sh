@@ -25,4 +25,6 @@ echo "  http://$LOCAL_IP:8090"
 echo "====================================================="
 
 # Start the server
+# Ensure the port is open for local network traffic
+sudo ufw allow 8090/tcp > /dev/null
 ./scripts/start_server.sh
