@@ -6,7 +6,7 @@ sudo systemctl start ollama
 
 # Pre-load the 72B model into VRAM to eliminate cold-start latency
 echo "Loading Qwen2.5-VL 72B into unified memory..."
-curl -s -X POST http://localhost:11434/api/generate -d '{"model": "qwen2.5-vl:72b", "keep_alive": "1h"}' > /dev/null
+curl -s -X POST http://localhost:11434/api/generate -d '{"model": "qwen2.5vl:72b", "keep_alive": "1h"}' > /dev/null
 
 # Navigate to the project directory
 cd ~/live-vlm-webui
