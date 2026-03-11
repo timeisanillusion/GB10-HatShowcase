@@ -33,7 +33,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 ```
 and pull the required model:
 ```bash
-ollama pull qwen2.5-vl:72b
+ollama pull qwen2.5vl:72b
 
 ```
 
