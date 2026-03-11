@@ -27,7 +27,11 @@ In the WebUI settings (or your `.env` configuration), you must set the System Pr
 ## 🚀 Setup & Installation
 
 **1. Prepare the Base Environment (On the GB10)**
-Ensure Ollama is installed and pull the required model:
+Ensure Ollama is installed
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+and pull the required model:
 ```bash
 ollama pull qwen2.5-vl:72b
 
