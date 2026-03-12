@@ -69,6 +69,12 @@ python3 apply_patches.py
 * Move `start_vlm_showcase.sh` to your home directory (`~`) and make it executable (`chmod +x ~/start_vlm_showcase.sh`).
 * Move `VLM_Showcase.desktop` to your `~/Desktop` and allow execution permissions.
 
+Or just run this from the CLI
+```bash
+chmod +x start_vlm_showcase.sh
+./start_vlm_showcase.sh
+```
+
 ## 🎮 Running the Showcase
 
 1. Double-click the **VLM 7B Showcase** icon on the GB10 desktop.
