@@ -5,8 +5,8 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT (Updated to request native JSON format with standard coordinate order)
-HAT_PROMPT = 'Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Coordinates must be normalized between 0 and 1000. Do not include any other text.'
+# YOUR CUSTOM PROMPT (Updated to request JSON and remove the 1000 normalization limit)
+HAT_PROMPT = 'Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Do not include any other text.'
 
 # JavaScript payload with standard brackets
 JS_PAYLOAD = r"""
@@ -64,7 +64,7 @@ JS_PAYLOAD = r"""
         injectPrompt(); 
         mutations.forEach(m => {
             const txt = m.target.textContent;
-            // Updated to check for the JSON key and parse the new format
+            // Now checking for the JSON key instead of square brackets
             if (txt && txt.includes('bbox_2d')) {
                 const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*,\s*"label":\s*"([^"]+)"}/g;
                 let match;
@@ -89,12 +89,18 @@ JS_PAYLOAD = r"""
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             lastCoords.forEach(match => {
-                // Updated variable mapping to match the new Regex capture groups (xmin, ymin, xmax, ymax, label)
+                // Updated variable mapping to match the JSON Regex capture groups
                 const label = match[5].trim();
-                let x1 = parseInt(match[1]) / 1000;
-                let y1 = parseInt(match[2]) / 1000;
-                let x2 = parseInt(match[3]) / 1000;
-                let y2 = parseInt(match[4]) / 1000;
+                
+                // Fetch the intrinsic resolution of the webcam frame (fallback to 640x480)
+                const vidW = video.videoWidth || 640;
+                const vidH = video.videoHeight || 480;
+
+                // Divide by the actual video dimensions instead of 1000
+                let x1 = parseInt(match[1], 10) / vidW;
+                let y1 = parseInt(match[2], 10) / vidH;
+                let x2 = parseInt(match[3], 10) / vidW;
+                let y2 = parseInt(match[4], 10) / vidH;
 
                 if (rotationAngle === 90) {
                     let ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
