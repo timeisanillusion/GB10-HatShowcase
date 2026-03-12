@@ -5,10 +5,10 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT
-HAT_PROMPT = 'Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. If no person is found, return []. Do not include any other text.'
+# YOUR CUSTOM PROMPT (Tightened for 7B hallucination prevention and enforcing 1000-scale)
+HAT_PROMPT = 'Analyze the image. Locate the main, prominent person in the foreground. Ignore background objects, shadows, and false positives. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Coordinates MUST be normalized between 0 and 1000. If no prominent person is clearly visible, return []. Do not include any other text.'
 
-# JavaScript payload with standard brackets
+# JavaScript payload
 JS_PAYLOAD = r"""
 <script id="blackwell-overlay">
 (function() {
@@ -65,12 +65,12 @@ JS_PAYLOAD = r"""
         mutations.forEach(m => {
             const txt = m.target.textContent;
             
-            // 1. CLEAR BOXES LOGIC: If text resets, returns empty array, or lacks JSON context
-            if (!txt || txt.trim() === "" || txt.includes("[]") || (txt.length > 10 && !txt.includes("bbox_2d"))) {
+            // 1. STREAMING-SAFE CLEAR LOGIC: Only wipe canvas if we explicitly see empty array brackets
+            if (txt && txt.includes("[]")) {
                 lastCoords = [];
             }
 
-            // 2. PARSE NEW BOXES
+            // 2. PARSE NEW BOXES (Ignores partial streams safely)
             if (txt && txt.includes('bbox_2d')) {
                 const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*,\s*"label":\s*"([^"]+)"}/g;
                 let match;
@@ -103,7 +103,6 @@ JS_PAYLOAD = r"""
                     const domW = canvas.width;
                     const domH = canvas.height;
 
-                    // Calculate Aspect Ratios for Letterbox detection
                     const vidRatio = vidW / vidH;
                     const domRatio = domW / domH;
 
@@ -113,20 +112,18 @@ JS_PAYLOAD = r"""
                     let offsetY = 0;
 
                     if (vidRatio > domRatio) {
-                        // Letterboxed (black bars top and bottom)
                         renderH = domW / vidRatio;
                         offsetY = (domH - renderH) / 2;
                     } else {
-                        // Pillarboxed (black bars left and right)
                         renderW = domH * vidRatio;
                         offsetX = (domW - renderW) / 2;
                     }
 
-                    // 1. Normalize based on intrinsic video resolution (0.0 to 1.0)
-                    let nx1 = parseInt(match[1], 10) / vidW;
-                    let ny1 = parseInt(match[2], 10) / vidH;
-                    let nx2 = parseInt(match[3], 10) / vidW;
-                    let ny2 = parseInt(match[4], 10) / vidH;
+                    // 1. Normalize based on 0-1000 scale (Corrected Qwen Math)
+                    let nx1 = parseInt(match[1], 10) / 1000;
+                    let ny1 = parseInt(match[2], 10) / 1000;
+                    let nx2 = parseInt(match[3], 10) / 1000;
+                    let ny2 = parseInt(match[4], 10) / 1000;
 
                     // 2. Apply Tuners to Normalized Coordinates
                     if (rotationAngle === 90) {
@@ -191,9 +188,7 @@ FINAL_JS = JS_PAYLOAD.replace("__PROMPT_PLACEHOLDER__", HAT_PROMPT)
 if os.path.exists(TARGET_HTML):
     with open(TARGET_HTML, 'r') as f:
         content = f.read()
-    # Clean old scripts
     content = re.sub(r'<script id="blackwell-overlay">.*?</script>', '', content, flags=re.DOTALL)
-    # Inject new script
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
