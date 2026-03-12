@@ -5,16 +5,29 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT (Tightened for 7B hallucination prevention and enforcing 1000-scale)
+# YOUR CUSTOM PROMPT
 HAT_PROMPT = 'Analyze the image. Locate the main, prominent person in the foreground. Ignore background objects, shadows, and false positives. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Coordinates MUST be normalized between 0 and 1000. If no prominent person is clearly visible, return []. Do not include any other text.'
 
 # JavaScript payload
 JS_PAYLOAD = r"""
 <script id="blackwell-overlay">
 (function() {
-    console.log("🎮 SHOWCASE READY: Hat Prompt Injected | S, M, R Tuners Active | Robust Scaling");
+    console.log("🎮 SHOWCASE READY: Hat Prompt Injected | S, M, R Tuners Active | Robust Scaling | State Manager Active");
     
     const CUSTOM_PROMPT = `__PROMPT_PLACEHOLDER__`;
+    let isHatModeActive = true; 
+    let wasHatModeActive = true;
+
+    function checkMode(selectedPrompt) {
+        if (selectedPrompt === CUSTOM_PROMPT) {
+            isHatModeActive = true;
+            console.log("🎩 Hat Mode: ENABLED");
+        } else {
+            isHatModeActive = false;
+            lastCoords = []; // Clear tracking data
+            console.log("🎩 Hat Mode: DISABLED (Clean up active)");
+        }
+    }
 
     function injectPrompt() {
         const promptSelect = document.getElementById('prompt-select') || document.querySelector('select');
@@ -33,6 +46,15 @@ JS_PAYLOAD = r"""
                     promptInput.value = opt.value;
                     promptInput.dispatchEvent(new Event('input', { bubbles: true }));
                 }
+
+                // Add the listener to detect when the user changes the dropdown
+                promptSelect.addEventListener('change', (e) => {
+                    checkMode(e.target.value);
+                    if (promptInput) {
+                        promptInput.value = e.target.value;
+                        promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                });
             }
         }
     }
@@ -62,15 +84,19 @@ JS_PAYLOAD = r"""
 
     const observer = new MutationObserver((mutations) => {
         injectPrompt(); 
+        
+        // Gatekeeper: Do not parse incoming text if Hat Mode is off
+        if (!isHatModeActive) return;
+
         mutations.forEach(m => {
             const txt = m.target.textContent;
             
-            // 1. STREAMING-SAFE CLEAR LOGIC: Only wipe canvas if we explicitly see empty array brackets
+            // STREAMING-SAFE CLEAR LOGIC
             if (txt && txt.includes("[]")) {
                 lastCoords = [];
             }
 
-            // 2. PARSE NEW BOXES (Ignores partial streams safely)
+            // PARSE NEW BOXES 
             if (txt && txt.includes('bbox_2d')) {
                 const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*,\s*"label":\s*"([^"]+)"}/g;
                 let match;
@@ -86,6 +112,20 @@ JS_PAYLOAD = r"""
     function render() {
         const video = document.querySelector('video');
         const canvas = setupCanvas();
+        
+        // Mode switch cleanup: If we just turned off Hat Mode, clear the canvas once and sleep.
+        if (!isHatModeActive) {
+            if (wasHatModeActive && canvas) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                wasHatModeActive = false;
+            }
+            requestAnimationFrame(render);
+            return; 
+        }
+
+        wasHatModeActive = true;
+
         if (video && canvas) {
             if (canvas.width !== video.clientWidth || canvas.height !== video.clientHeight) {
                 canvas.width = video.clientWidth;
@@ -119,13 +159,13 @@ JS_PAYLOAD = r"""
                         offsetX = (domW - renderW) / 2;
                     }
 
-                    // 1. Normalize based on 0-1000 scale (Corrected Qwen Math)
+                    // Normalize based on 0-1000 scale
                     let nx1 = parseInt(match[1], 10) / 1000;
                     let ny1 = parseInt(match[2], 10) / 1000;
                     let nx2 = parseInt(match[3], 10) / 1000;
                     let ny2 = parseInt(match[4], 10) / 1000;
 
-                    // 2. Apply Tuners to Normalized Coordinates
+                    // Apply Tuners
                     if (rotationAngle === 90) {
                         let ox1 = nx1, oy1 = ny1, ox2 = nx2, oy2 = ny2;
                         nx1 = 1 - oy2; ny1 = ox1; nx2 = 1 - oy1; ny2 = ox2;
@@ -139,7 +179,7 @@ JS_PAYLOAD = r"""
                     if (swapXY) { let tmpX1 = nx1, tmpX2 = nx2; nx1 = ny1; ny1 = tmpX1; nx2 = ny2; ny2 = tmpX2; }
                     if (mirrorX) { nx1 = 1 - nx1; nx2 = 1 - nx2; }
 
-                    // 3. Map to Canvas with Robust Aspect-Ratio Offsets
+                    // Map to Canvas
                     let px1 = nx1 * renderW + offsetX;
                     let py1 = ny1 * renderH + offsetY;
                     let px2 = nx2 * renderW + offsetX;
@@ -163,7 +203,7 @@ JS_PAYLOAD = r"""
                 });
             }
             
-            // Tuner HUD always visible
+            // Tuner HUD always visible in Hat Mode
             ctx.fillStyle = "rgba(255,255,255,0.7)";
             ctx.font = "12px monospace";
             ctx.fillText(`R:${rotationAngle} S:${swapXY} M:${mirrorX}`, 10, canvas.height - 10);
@@ -173,6 +213,7 @@ JS_PAYLOAD = r"""
     requestAnimationFrame(render);
 
     window.addEventListener('keydown', (e) => {
+        if (!isHatModeActive) return; // Disable hotkeys when off
         const key = e.key.toLowerCase();
         if (key === 's') swapXY = !swapXY;
         if (key === 'm') mirrorX = !mirrorX;
@@ -192,4 +233,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Prompt injected, tuners active, and robust scaling applied.")
+    print("✅ Success: Prompt injected, tuners active, robust scaling applied, and State Manager hooked.")
