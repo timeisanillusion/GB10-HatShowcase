@@ -5,8 +5,8 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT (Optimized for the 7B's preferred flat array format)
-HAT_PROMPT = 'Analyze the image. Locate the main person in the foreground. Ignore background objects. Return ONLY a list of arrays in this exact format: [[xmin, ymin, xmax, ymax, "Person (Hat)"]] or [[xmin, ymin, xmax, ymax, "Person"]]. Coordinates must be scaled 0 to 1000. If no person is found, return []. Do not include any other text.'
+# YOUR CUSTOM PROMPT (Engineered to defeat First Example Bias and force head-checking)
+HAT_PROMPT = 'Analyze the image. Focus on the main person in the foreground and look strictly at their head. Are they wearing a hat? Return ONLY a list of arrays in this exact format: [[xmin, ymin, xmax, ymax, "Person"]] if they do NOT have a hat, or [[xmin, ymin, xmax, ymax, "Person (Hat)"]] if they DO have a hat. Coordinates must be scaled 0 to 1000. If no person is found, return []. Do not include any other text.'
 
 # JavaScript payload
 JS_PAYLOAD = r"""
@@ -158,7 +158,7 @@ JS_PAYLOAD = r"""
                         offsetX = (domW - renderW) / 2;
                     }
 
-                    // Map X/Y in correct order, and clamp max value to 1000 to fix hallucination bug
+                    // Map X/Y in correct order, clamp to 1000 max
                     let nx1 = Math.min(1000, parseInt(match[1], 10)) / 1000;
                     let ny1 = Math.min(1000, parseInt(match[2], 10)) / 1000;
                     let nx2 = Math.min(1000, parseInt(match[3], 10)) / 1000;
@@ -228,4 +228,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Array parser patched, boundary clamping applied, and mode toggle active.")
+    print("✅ Success: Prompt engineered to defeat first-example bias.")
