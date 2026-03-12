@@ -26,12 +26,15 @@ function processVlmResponse(vlmTextResponse) {
         while ((match = regex.exec(vlmTextResponse)) !== null) {
             foundDetection = true;
             
-            // Normalize 0-1000 coordinates to pixel values
-            // Now correctly mapped to standard xmin, ymin, xmax, ymax
-            const xmin = (parseInt(match[1], 10) / 1000) * canvas.width;
-            const ymin = (parseInt(match[2], 10) / 1000) * canvas.height;
-            const xmax = (parseInt(match[3], 10) / 1000) * canvas.width;
-            const ymax = (parseInt(match[4], 10) / 1000) * canvas.height;
+            // Fetch the intrinsic resolution of the webcam frame (fallback to 640x480)
+            const vidW = videoElement.videoWidth || 640;
+            const vidH = videoElement.videoHeight || 480;
+
+            // Divide by the actual video dimensions instead of 1000
+            const xmin = (parseInt(match[1], 10) / vidW) * canvas.width;
+            const ymin = (parseInt(match[2], 10) / vidH) * canvas.height;
+            const xmax = (parseInt(match[3], 10) / vidW) * canvas.width;
+            const ymax = (parseInt(match[4], 10) / vidH) * canvas.height;
             const label = match[5].trim();
 
             const width = xmax - xmin;
