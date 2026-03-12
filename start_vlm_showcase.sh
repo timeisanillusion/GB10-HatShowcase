@@ -13,7 +13,7 @@ REPO_DIR="$PROJECT_ROOT/live-vlm-webui"
 VENV_PATH="$REPO_DIR/venv"
 
 # 3. CHOOSE YOUR ENGINE
-# Set this to "qwen2.5vl:7b" for real-time (recommended)
+# Set this to "qwen2.5vl:7b" for near real-time (recommended)
 # Set this to "qwen-72b-slim" for high-accuracy flex
 MODEL="qwen2.5vl:7b"
 
