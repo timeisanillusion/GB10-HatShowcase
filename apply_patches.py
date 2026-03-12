@@ -5,14 +5,14 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT (Engineered to defeat First Example Bias and force head-checking)
-HAT_PROMPT = 'Analyze the image. Focus on the main person in the foreground and look strictly at their head. Are they wearing a hat? Return ONLY a list of arrays in this exact format: [[xmin, ymin, xmax, ymax, "Person"]] if they do NOT have a hat, or [[xmin, ymin, xmax, ymax, "Person (Hat)"]] if they DO have a hat. Coordinates must be scaled 0 to 1000. If no person is found, return []. Do not include any other text.'
+# YOUR CUSTOM PROMPT (Engineered with Chain-of-Thought to stop hallucinations)
+HAT_PROMPT = 'Analyze the image. Step 1: Look closely at the person. Are they wearing a hat? (State Yes or No). Step 2: Return a bounding box for the person in this exact array format: [[ymin, xmin, ymax, xmax, "Label"]]. Use the label "Person (Hat)" if Yes, and "Person" if No. Coordinates must be scaled 0 to 1000. If no person is found, return [].'
 
 # JavaScript payload
 JS_PAYLOAD = r"""
 <script id="blackwell-overlay">
 (function() {
-    console.log("🎮 SHOWCASE READY: Hat Check Demo | S, M, R Tuners Active | Array Parsing | Clamped Coordinates");
+    console.log("🎮 SHOWCASE READY: Hat Check Demo | S, M, R Tuners Active | CoT Parsing | Native Qwen Coordinates");
     
     const CUSTOM_PROMPT = `__PROMPT_PLACEHOLDER__`;
     let isHatModeActive = true; 
@@ -21,11 +21,9 @@ JS_PAYLOAD = r"""
     function checkMode(selectedPrompt) {
         if (selectedPrompt === CUSTOM_PROMPT) {
             isHatModeActive = true;
-            console.log("Hat Mode: ENABLED");
         } else {
             isHatModeActive = false;
             lastCoords = []; 
-            console.log("Hat Mode: DISABLED (Clean up active)");
         }
     }
 
@@ -35,8 +33,6 @@ JS_PAYLOAD = r"""
         
         if (promptSelect) {
             if (!document.getElementById('hat-showcase-opt')) {
-                console.log("Attaching Hat Check Demo to dropdown:", promptSelect.id);
-                
                 const opt = document.createElement('option');
                 opt.id = 'hat-showcase-opt';
                 opt.value = CUSTOM_PROMPT;
@@ -91,12 +87,12 @@ JS_PAYLOAD = r"""
         mutations.forEach(m => {
             const txt = m.target.textContent;
             
-            // Streaming-safe clear logic
-            if (txt && txt.trim() === "[]") {
+            // Clear boxes if UI resets or explicitly returns empty array
+            if (!txt || txt.trim() === "" || (txt && txt.includes("[]"))) {
                 lastCoords = [];
             }
 
-            // Regex parsing the clean array: [xmin, ymin, xmax, ymax, "Label"]
+            // Regex parsing the clean array. Ignores the CoT text completely!
             if (txt && txt.includes('[')) {
                 const regex = /\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]+)"\s*\]/g;
                 let match;
@@ -158,11 +154,11 @@ JS_PAYLOAD = r"""
                         offsetX = (domW - renderW) / 2;
                     }
 
-                    // Map X/Y in correct order, clamp to 1000 max
-                    let nx1 = Math.min(1000, parseInt(match[1], 10)) / 1000;
-                    let ny1 = Math.min(1000, parseInt(match[2], 10)) / 1000;
-                    let nx2 = Math.min(1000, parseInt(match[3], 10)) / 1000;
-                    let ny2 = Math.min(1000, parseInt(match[4], 10)) / 1000;
+                    // Native Qwen Order: [ymin, xmin, ymax, xmax]
+                    let ny1 = Math.min(1000, parseInt(match[1], 10)) / 1000; // ymin
+                    let nx1 = Math.min(1000, parseInt(match[2], 10)) / 1000; // xmin
+                    let ny2 = Math.min(1000, parseInt(match[3], 10)) / 1000; // ymax
+                    let nx2 = Math.min(1000, parseInt(match[4], 10)) / 1000; // xmax
 
                     if (rotationAngle === 90) {
                         let ox1 = nx1, oy1 = ny1, ox2 = nx2, oy2 = ny2;
@@ -228,4 +224,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Prompt engineered to defeat first-example bias.")
+    print("✅ Success: CoT prompt and native Qwen coordinate mapping applied.")
