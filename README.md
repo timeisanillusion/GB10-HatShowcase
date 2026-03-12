@@ -78,7 +78,7 @@ python3 apply_patches.py
 
 1. Double-click the **VLM 7B Showcase** icon on the GB10 desktop.
 
-Or just run this from the CLI
+**OR** just run this from the CLI
 ```bash
 chmod +x start_vlm_showcase.sh
 ./start_vlm_showcase.sh
