@@ -76,13 +76,12 @@ python3 apply_patches.py
 3. Open that URL on your laptop's browser.
 4. Accept the camera permissions, put on a hat, and step into the frame!
 
-```
 
-Important Notes:
-Check the dropdown and confirm the 7B model is loaded (listed on the right of the GUI), you may need to select a different model and then switch back
-This adds a new prompt to the dropdown, again you may need to switch demos to have it load correctly
-You can use r,s,m keys to fix potential issues with the camera overlay not being mirrored/rotated/flipped correctly
 
-Tweak the prompt :) the box will be green when labeled with "hat" and blue otherwise.
+## Important Notes:
+- Check the dropdown and confirm the 7B model is loaded (listed on the right of the GUI), you may need to select a different model and then switch back
+- This adds a new prompt to the dropdown, again you may need to switch demos to have it load correctly
+- You can use r,s,m keys to fix potential issues with the camera overlay not being mirrored/rotated/flipped correctly
+- Tweak the prompt :) the box will be green when labeled with "hat" and blue otherwise.
 
 
