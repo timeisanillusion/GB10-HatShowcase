@@ -5,8 +5,8 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT
-HAT_PROMPT = "Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of bounding boxes in this exact format: [label, ymin, xmin, ymax, xmax]. Use the label 'Person (Hat)' if they have a hat, and 'Person' if they do not. Coordinates must be normalized between 0 and 1000. Do not include any other text."
+# YOUR CUSTOM PROMPT (Updated to request native JSON format with standard coordinate order)
+HAT_PROMPT = 'Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Coordinates must be normalized between 0 and 1000. Do not include any other text.'
 
 # JavaScript payload with standard brackets
 JS_PAYLOAD = r"""
@@ -64,8 +64,9 @@ JS_PAYLOAD = r"""
         injectPrompt(); 
         mutations.forEach(m => {
             const txt = m.target.textContent;
-            if (txt && txt.includes('[')) {
-                const regex = /\[\s*([\w\s\(\)]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]/g;
+            // Updated to check for the JSON key and parse the new format
+            if (txt && txt.includes('bbox_2d')) {
+                const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*,\s*"label":\s*"([^"]+)"}/g;
                 let match;
                 const found = [];
                 regex.lastIndex = 0;
@@ -88,11 +89,12 @@ JS_PAYLOAD = r"""
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             lastCoords.forEach(match => {
-                const label = match[1].trim();
+                // Updated variable mapping to match the new Regex capture groups (xmin, ymin, xmax, ymax, label)
+                const label = match[5].trim();
+                let x1 = parseInt(match[1]) / 1000;
                 let y1 = parseInt(match[2]) / 1000;
-                let x1 = parseInt(match[3]) / 1000;
+                let x2 = parseInt(match[3]) / 1000;
                 let y2 = parseInt(match[4]) / 1000;
-                let x2 = parseInt(match[5]) / 1000;
 
                 if (rotationAngle === 90) {
                     let ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
