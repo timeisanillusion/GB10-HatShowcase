@@ -1,30 +1,44 @@
 #!/bin/bash
-echo "Initializing Dell GB10 VLM Showcase..."
+# --- UNIVERSAL DELL GB10 VLM SHOWCASE ---
 
-# Ensure the Ollama backend is running
-sudo systemctl start ollama
+# 1. ZOMBIE CLEANUP (Blackwell Reset)
+echo "Resetting Blackwell GPU memory..."
+sudo pkill -9 ollama_llama_server 2>/dev/null
+sleep 1
 
-# Pre-load the 72B model into VRAM to eliminate cold-start latency
-echo "Loading Qwen2.5-VL 72B into unified memory..."
-curl -s -X POST http://localhost:11434/api/generate -d '{"model": "qwen2.5vl:72b", "keep_alive": "1h"}' > /dev/null
+# 2. DYNAMIC PATHS
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$SCRIPT_DIR"
+REPO_DIR="$PROJECT_ROOT/live-vlm-webui"
+VENV_PATH="$REPO_DIR/venv"
 
-# Navigate to the project directory
-cd ~/live-vlm-webui
+# 3. CHOOSE YOUR ENGINE
+# Set this to "qwen2.5vl:7b" for real-time (recommended)
+# Set this to "qwen-72b-slim" for high-accuracy flex
+MODEL="qwen2.5vl:7b"
 
-# Activate the virtual Python environment
-source venv/bin/activate
+echo "Pre-loading $MODEL into Blackwell memory..."
+curl -s -X POST http://127.0.0.1:11434/api/generate -d "{\"model\": \"$MODEL\", \"keep_alive\": \"1h\"}" > /dev/null
 
-# Grab the primary local IP address of the GB10
-LOCAL_IP=$(hostname -I | awk '{print $1}')
+# 4. LAUNCH WEBUI
+if [ -d "$REPO_DIR" ]; then
+    cd "$REPO_DIR"
+    
+    # Activate venv
+    [[ -n "$VIRTUAL_ENV" ]] || source "$VENV_PATH/bin/activate"
 
-# Print the exact URL to connect from the laptop
-echo "====================================================="
-echo "  Starting WebUI Server..."
-echo "  Access the showcase from your laptop browser at:"
-echo "  http://$LOCAL_IP:8090"
-echo "====================================================="
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
 
-# Start the server
-# Ensure the port is open for local network traffic
-sudo ufw allow 8090/tcp > /dev/null
-./scripts/start_server.sh
+    echo "====================================================="
+    echo "  🚀 DELL GB10 VLM SHOWCASE IS LIVE"
+    echo "  Model: $MODEL"
+    echo "  URL:   https://$LOCAL_IP:8090"
+    echo "====================================================="
+    echo "  Windows Tunnel: ssh -L 8090:localhost:8090 $USER@$LOCAL_IP"
+    echo "====================================================="
+    
+    ./scripts/start_server.sh --port 8090 --model "$MODEL"
+else
+    echo "❌ Error: Could not find repo at $REPO_DIR"
+    exit 1
+fi

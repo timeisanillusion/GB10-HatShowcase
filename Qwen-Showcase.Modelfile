@@ -1,0 +1,5 @@
+FROM qwen2.5vl:72b
+PARAMETER num_ctx 4096
+PARAMETER num_gpu 99
+PARAMETER temperature 0
+SYSTEM "You are a vision assistant. Always provide detections in [label, ymin, xmin, ymax, xmax] format."

@@ -1,81 +1,156 @@
 import os
-import sys
 import re
 
-# ==========================================
-# CONFIGURATION
-# Update these paths based on the exact structure of the live-vlm-webui repo
-# ==========================================
-TARGET_HTML_FILE = "live-vlm-webui/templates/index.html" 
-TARGET_JS_FILE = "live-vlm-webui/static/js/main.js"
+# --- PATH DETECTION ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-def patch_html():
-    if not os.path.exists(TARGET_HTML_FILE):
-        print(f"❌ Error: Could not find HTML file at {TARGET_HTML_FILE}")
-        return False
-        
-    with open(TARGET_HTML_FILE, 'r', encoding='utf-8') as file:
-        html_content = file.read()
+# YOUR CUSTOM PROMPT
+HAT_PROMPT = "Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of bounding boxes in this exact format: [label, ymin, xmin, ymax, xmax]. Use the label 'Person (Hat)' if they have a hat, and 'Person' if they do not. Coordinates must be normalized between 0 and 1000. Do not include any other text."
 
-    # Regex to find the video tag with id="webcamVideo", capturing the whole tag
-    # Uses \s* to account for potential formatting changes in the source code
-    video_tag_pattern = r'(<video[^>]*id=["\']webcamVideo["\'][^>]*>.*?</video>)'
+# JavaScript payload with standard brackets
+JS_PAYLOAD = r"""
+<script id="blackwell-overlay">
+(function() {
+    console.log("🎮 SHOWCASE READY: Hat Prompt Injected | S, M, R Tuners Active");
     
-    if not re.search(video_tag_pattern, html_content, re.IGNORECASE | re.DOTALL):
-        print("⚠️ Warning: Original video tag not found. It may have already been patched or the ID changed.")
-        return False
+    const CUSTOM_PROMPT = `__PROMPT_PLACEHOLDER__`;
 
-    # The \g<1> safely injects the exact <video> tag we just captured
-    replacement = r"""
-<div id="videoContainer" style="position: relative; display: inline-block;">
-    \g<1>
-    <canvas id="overlayCanvas" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 10;"></canvas>
-</div>
+    function injectPrompt() {
+        const promptSelect = document.getElementById('prompt-select') || document.querySelector('select');
+        const promptInput = document.getElementById('prompt-input') || document.querySelector('textarea');
+        
+        if (promptSelect) {
+            if (!document.getElementById('hat-showcase-opt')) {
+                const opt = document.createElement('option');
+                opt.id = 'hat-showcase-opt';
+                opt.value = CUSTOM_PROMPT;
+                opt.textContent = "🎩 Hat Showcase (Ottawa Demo)";
+                promptSelect.prepend(opt);
+                promptSelect.selectedIndex = 0;
+                
+                if (promptInput) {
+                    promptInput.value = opt.value;
+                    promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }
+        }
+    }
+
+    let lastCoords = [];
+    let swapXY = false;
+    let mirrorX = false;
+    let rotationAngle = 0; 
+
+    function setupCanvas() {
+        const video = document.querySelector('video');
+        if (!video) return null;
+        let canvas = document.getElementById('edgeCanvas');
+        if (!canvas) {
+            const wrapper = document.createElement('div');
+            wrapper.id = 'v-wrapper';
+            wrapper.style.cssText = "position:relative; display:inline-block; line-height:0;";
+            video.parentNode.insertBefore(wrapper, video);
+            wrapper.appendChild(video);
+            canvas = document.createElement('canvas');
+            canvas.id = 'edgeCanvas';
+            canvas.style.cssText = "position:absolute; top:0; left:0; pointer-events:none; z-index:10;";
+            wrapper.appendChild(canvas);
+        }
+        return canvas;
+    }
+
+    const observer = new MutationObserver((mutations) => {
+        injectPrompt(); 
+        mutations.forEach(m => {
+            const txt = m.target.textContent;
+            if (txt && txt.includes('[')) {
+                const regex = /\[\s*([\w\s\(\)]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]/g;
+                let match;
+                const found = [];
+                regex.lastIndex = 0;
+                while ((match = regex.exec(txt)) !== null) { found.push(match); }
+                if (found.length > 0) lastCoords = found;
+            }
+        });
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+    function render() {
+        const video = document.querySelector('video');
+        const canvas = setupCanvas();
+        if (video && canvas && lastCoords.length > 0) {
+            if (canvas.width !== video.clientWidth || canvas.height !== video.clientHeight) {
+                canvas.width = video.clientWidth;
+                canvas.height = video.clientHeight;
+            }
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            lastCoords.forEach(match => {
+                const label = match[1].trim();
+                let y1 = parseInt(match[2]) / 1000;
+                let x1 = parseInt(match[3]) / 1000;
+                let y2 = parseInt(match[4]) / 1000;
+                let x2 = parseInt(match[5]) / 1000;
+
+                if (rotationAngle === 90) {
+                    let ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
+                    x1 = 1 - oy2; y1 = ox1; x2 = 1 - oy1; y2 = ox2;
+                } else if (rotationAngle === 180) {
+                    x1 = 1 - x1; y1 = 1 - y1; x2 = 1 - x2; y2 = 1 - y2;
+                } else if (rotationAngle === 270) {
+                    let ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
+                    x1 = oy1; y1 = 1 - ox2; x2 = oy2; y2 = 1 - ox1;
+                }
+
+                if (swapXY) { let tmpX1 = x1, tmpX2 = x2; x1 = y1; y1 = tmpX1; x2 = y2; y2 = tmpX2; }
+                if (mirrorX) { x1 = 1 - x1; x2 = 1 - x2; }
+
+                const fx = Math.min(x1, x2) * canvas.width;
+                const fy = Math.min(y1, y2) * canvas.height;
+                const fw = Math.abs(x2 - x1) * canvas.width;
+                const fh = Math.abs(y2 - y1) * canvas.height;
+
+                ctx.strokeStyle = label.includes('Hat') ? "#00FF00" : "#00CCFF";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(fx, fy, fw, fh);
+                
+                ctx.fillStyle = ctx.strokeStyle;
+                ctx.fillRect(fx, fy - 25, label.length * 10 + 20, 25);
+                ctx.fillStyle = "black";
+                ctx.font = "bold 14px sans-serif";
+                ctx.fillText(label.toUpperCase(), fx + 5, fy - 7);
+            });
+            
+            ctx.fillStyle = "rgba(255,255,255,0.7)";
+            ctx.font = "12px monospace";
+            ctx.fillText(`R:${rotationAngle} S:${swapXY} M:${mirrorX}`, 10, canvas.height - 10);
+        }
+        requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+
+    window.addEventListener('keydown', (e) => {
+        const key = e.key.toLowerCase();
+        if (key === 's') swapXY = !swapXY;
+        if (key === 'm') mirrorX = !mirrorX;
+        if (key === 'r') rotationAngle = (rotationAngle + 90) % 360;
+    });
+})();
+</script>
 """
-    
-    patched_html = re.sub(video_tag_pattern, replacement, html_content, flags=re.IGNORECASE | re.DOTALL)
 
-    with open(TARGET_HTML_FILE, 'w', encoding='utf-8') as file:
-        file.write(patched_html)
-        
-    print(f"✅ Successfully patched HTML using regex: {TARGET_HTML_FILE}")
-    return True
+# Inject the prompt into the placeholder
+FINAL_JS = JS_PAYLOAD.replace("__PROMPT_PLACEHOLDER__", HAT_PROMPT)
 
-def patch_js():
-    if not os.path.exists(TARGET_JS_FILE):
-        print(f"❌ Error: Could not find JS file at {TARGET_JS_FILE}")
-        return False
-        
-    if not os.path.exists("canvas_overlay.js"):
-        print("❌ Error: canvas_overlay.js not found in current directory.")
-        return False
-
-    with open("canvas_overlay.js", 'r', encoding='utf-8') as patch_file:
-        patch_content = patch_file.read()
-
-    with open(TARGET_JS_FILE, 'r', encoding='utf-8') as file:
-        js_content = file.read()
-
-    # Prevent double-patching if the script is run twice
-    if "let isInferencing = false;" in js_content:
-        print("⚠️ Warning: JS file appears to already be patched. Skipping.")
-        return True
-
-    # Append the patch content to the bottom of the target JS file
-    with open(TARGET_JS_FILE, 'a', encoding='utf-8') as file:
-        file.write("\n\n// --- VLM SHOWCASE OVERLAY PATCH ---\n")
-        file.write(patch_content)
-
-    print(f"✅ Successfully appended logic to JS: {TARGET_JS_FILE}")
-    return True
-
-if __name__ == "__main__":
-    print("Applying VLM Showcase patches...")
-    html_success = patch_html()
-    js_success = patch_js()
-    
-    if html_success and js_success:
-        print("🎉 All patches applied successfully!")
-    else:
-        print("⚠️ Patching completed with errors. Please check the logs above.")
-        sys.exit(1)
+if os.path.exists(TARGET_HTML):
+    with open(TARGET_HTML, 'r') as f:
+        content = f.read()
+    # Clean old scripts
+    content = re.sub(r'<script id="blackwell-overlay">.*?</script>', '', content, flags=re.DOTALL)
+    # Inject new script
+    content = content.replace('</body>', FINAL_JS + '</body>')
+    with open(TARGET_HTML, 'w') as f:
+        f.write(content)
+    print("✅ Success: Prompt injected and tuner active. No Syntax Errors.")

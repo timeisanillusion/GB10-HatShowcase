@@ -1,48 +1,33 @@
 // ==========================================
-// VLM SHOWCASE: STATE-LOCKED CANVAS OVERLAY
+// VLM SHOWCASE: AUTO-DETECTING CANVAS OVERLAY
 // ==========================================
 
-const videoElement = document.getElementById('webcamVideo');
+const videoElement = document.getElementById('webcamVideo') || document.querySelector('video');
 const canvas = document.getElementById('overlayCanvas');
-const ctx = canvas.getContext('2d');
-
-// State-lock to prevent frame queuing and lag
+let ctx = null;
 let isInferencing = false;
 
-/**
- * Call this function right before you capture and send a WebRTC frame.
- * If it returns false, skip sending the frame.
- */
-function shouldSendFrame() {
-    if (isInferencing) {
-        return false; // The 72B model is still chewing on the last frame
-    }
-    isInferencing = true; // Lock the state
-    return true;
-}
-
-/**
- * Call this function the moment the WebSocket/API returns the text response.
- * It handles all the drawing and unlocks the state for the next frame.
- */
+// 1. Core Drawing Logic
 function processVlmResponse(vlmTextResponse) {
+    if (!canvas || !videoElement) return;
+    if (!ctx) ctx = canvas.getContext('2d');
+
     try {
-        // 1. Sync canvas dimensions to the actual displayed video size
+        // Match canvas size to the video element's display size
         canvas.width = videoElement.clientWidth;
         canvas.height = videoElement.clientHeight;
-
-        // 2. Clear previous boxes
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // 3. Regex to extract Qwen's format: [Label, ymin, xmin, ymax, xmax]
+        // Regex for Qwen format: [Label, ymin, xmin, ymax, xmax]
         const regex = /\[([^,\]]+?),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]/g;
         let match;
+        let foundDetection = false;
 
-        // 4. Loop through every detected object and draw
         while ((match = regex.exec(vlmTextResponse)) !== null) {
+            foundDetection = true;
             const label = match[1].trim();
             
-            // Qwen returns 0-1000 normalized coordinates. Convert to pixels.
+            // Normalize 0-1000 coordinates to pixel values
             const ymin = (parseInt(match[2], 10) / 1000) * canvas.height;
             const xmin = (parseInt(match[3], 10) / 1000) * canvas.width;
             const ymax = (parseInt(match[4], 10) / 1000) * canvas.height;
@@ -51,32 +36,45 @@ function processVlmResponse(vlmTextResponse) {
             const width = xmax - xmin;
             const height = ymax - ymin;
 
-            // Color coding: Green for Hats, Red for standard Persons
-            if (label.includes("Hat")) {
-                ctx.strokeStyle = "#00FF00"; 
-                ctx.fillStyle = "#00FF00";
-            } else {
-                ctx.strokeStyle = "#FF3333"; 
-                ctx.fillStyle = "#FF3333";
-            }
-
-            // Draw Box
+            // Styling
+            ctx.strokeStyle = label.toLowerCase().includes("hat") ? "#00FF00" : "#FF3333"; 
+            ctx.fillStyle = ctx.strokeStyle;
             ctx.lineWidth = 4;
-            ctx.strokeRect(xmin, ymin, width, height);
 
-            // Draw Label Tag Background
+            // Draw Box and Label
+            ctx.strokeRect(xmin, ymin, width, height);
             ctx.font = "bold 18px Arial";
             const textWidth = ctx.measureText(label).width;
             ctx.fillRect(xmin, ymin - 28, textWidth + 16, 28);
-
-            // Draw Label Text
             ctx.fillStyle = "#000000"; 
             ctx.fillText(label, xmin + 8, ymin - 8);
         }
     } catch (error) {
         console.error("Error drawing VLM boxes:", error);
     } finally {
-        // 5. UNLOCK THE STATE (Crucial: happens even if there's an error)
         isInferencing = false;
     }
 }
+
+// 2. The DOM Mutation Observer (The Magic Hook)
+const observer = new MutationObserver((mutations) => {
+    for (let mutation of mutations) {
+        const nodeText = mutation.target.textContent || "";
+        if (nodeText.includes("[") && nodeText.includes("]")) {
+            // If the text matches the coordinate pattern
+            if (/\[.*?,\s*\d+,\s*\d+,\s*\d+,\s*\d+\]/.test(nodeText)) {
+                processVlmResponse(nodeText);
+            }
+        }
+    }
+});
+
+// Start observing
+window.addEventListener('load', () => {
+    observer.observe(document.body, { 
+        childList: true, 
+        subtree: true, 
+        characterData: true 
+    });
+    console.log("VLM Showcase Overlay active.");
+});
