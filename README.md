@@ -58,9 +58,12 @@ pip install -e .
 **3. Apply the Patches**
 Instead of manually editing the NVIDIA repository, run the included Python patcher to automatically inject the HTML canvas and JavaScript drawing logic.
 
-Ensure you are in the directory containing `apply_patches.py` and run:
+Ensure you are in the directory containing `apply_patches.py` 
 ```bash
 cd ..
+```
+and run:
+```bash
 python3 apply_patches.py
 ```
 
