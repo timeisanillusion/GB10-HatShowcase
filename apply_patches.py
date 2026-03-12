@@ -24,21 +24,24 @@ JS_PAYLOAD = r"""
             console.log("🎩 Hat Mode: ENABLED");
         } else {
             isHatModeActive = false;
-            lastCoords = []; // Clear tracking data
+            lastCoords = []; 
             console.log("🎩 Hat Mode: DISABLED (Clean up active)");
         }
     }
 
     function injectPrompt() {
+        // Look for the specific prompt dropdown, fallback to any select, or log a warning
         const promptSelect = document.getElementById('prompt-select') || document.querySelector('select');
         const promptInput = document.getElementById('prompt-input') || document.querySelector('textarea');
         
         if (promptSelect) {
             if (!document.getElementById('hat-showcase-opt')) {
+                console.log("Attaching Hat Check Demo to dropdown:", promptSelect.id || promptSelect.name || "Unnamed Select Element");
+                
                 const opt = document.createElement('option');
                 opt.id = 'hat-showcase-opt';
                 opt.value = CUSTOM_PROMPT;
-                opt.textContent = "🎩 Hat Showcase (Ottawa Demo)";
+                opt.textContent = "Hat Check Demo";
                 promptSelect.prepend(opt);
                 promptSelect.selectedIndex = 0;
                 
@@ -47,7 +50,6 @@ JS_PAYLOAD = r"""
                     promptInput.dispatchEvent(new Event('input', { bubbles: true }));
                 }
 
-                // Add the listener to detect when the user changes the dropdown
                 promptSelect.addEventListener('change', (e) => {
                     checkMode(e.target.value);
                     if (promptInput) {
@@ -85,18 +87,15 @@ JS_PAYLOAD = r"""
     const observer = new MutationObserver((mutations) => {
         injectPrompt(); 
         
-        // Gatekeeper: Do not parse incoming text if Hat Mode is off
         if (!isHatModeActive) return;
 
         mutations.forEach(m => {
             const txt = m.target.textContent;
             
-            // STREAMING-SAFE CLEAR LOGIC
             if (txt && txt.includes("[]")) {
                 lastCoords = [];
             }
 
-            // PARSE NEW BOXES 
             if (txt && txt.includes('bbox_2d')) {
                 const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*,\s*"label":\s*"([^"]+)"}/g;
                 let match;
@@ -113,7 +112,6 @@ JS_PAYLOAD = r"""
         const video = document.querySelector('video');
         const canvas = setupCanvas();
         
-        // Mode switch cleanup: If we just turned off Hat Mode, clear the canvas once and sleep.
         if (!isHatModeActive) {
             if (wasHatModeActive && canvas) {
                 const ctx = canvas.getContext('2d');
@@ -159,13 +157,11 @@ JS_PAYLOAD = r"""
                         offsetX = (domW - renderW) / 2;
                     }
 
-                    // Normalize based on 0-1000 scale
                     let nx1 = parseInt(match[1], 10) / 1000;
                     let ny1 = parseInt(match[2], 10) / 1000;
                     let nx2 = parseInt(match[3], 10) / 1000;
                     let ny2 = parseInt(match[4], 10) / 1000;
 
-                    // Apply Tuners
                     if (rotationAngle === 90) {
                         let ox1 = nx1, oy1 = ny1, ox2 = nx2, oy2 = ny2;
                         nx1 = 1 - oy2; ny1 = ox1; nx2 = 1 - oy1; ny2 = ox2;
@@ -179,7 +175,6 @@ JS_PAYLOAD = r"""
                     if (swapXY) { let tmpX1 = nx1, tmpX2 = nx2; nx1 = ny1; ny1 = tmpX1; nx2 = ny2; ny2 = tmpX2; }
                     if (mirrorX) { nx1 = 1 - nx1; nx2 = 1 - nx2; }
 
-                    // Map to Canvas
                     let px1 = nx1 * renderW + offsetX;
                     let py1 = ny1 * renderH + offsetY;
                     let px2 = nx2 * renderW + offsetX;
@@ -190,7 +185,6 @@ JS_PAYLOAD = r"""
                     const fw = Math.abs(px2 - px1);
                     const fh = Math.abs(py2 - py1);
 
-                    // Draw
                     ctx.strokeStyle = label.includes('Hat') ? "#00FF00" : "#00CCFF";
                     ctx.lineWidth = 4;
                     ctx.strokeRect(fx, fy, fw, fh);
@@ -203,7 +197,6 @@ JS_PAYLOAD = r"""
                 });
             }
             
-            // Tuner HUD always visible in Hat Mode
             ctx.fillStyle = "rgba(255,255,255,0.7)";
             ctx.font = "12px monospace";
             ctx.fillText(`R:${rotationAngle} S:${swapXY} M:${mirrorX}`, 10, canvas.height - 10);
@@ -213,7 +206,7 @@ JS_PAYLOAD = r"""
     requestAnimationFrame(render);
 
     window.addEventListener('keydown', (e) => {
-        if (!isHatModeActive) return; // Disable hotkeys when off
+        if (!isHatModeActive) return;
         const key = e.key.toLowerCase();
         if (key === 's') swapXY = !swapXY;
         if (key === 'm') mirrorX = !mirrorX;
@@ -233,4 +226,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Prompt injected, tuners active, robust scaling applied, and State Manager hooked.")
+    print("✅ Success: Name updated to 'Hat Check Demo'.")
