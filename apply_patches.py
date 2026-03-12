@@ -21,22 +21,22 @@ JS_PAYLOAD = r"""
     function checkMode(selectedPrompt) {
         if (selectedPrompt === CUSTOM_PROMPT) {
             isHatModeActive = true;
-            console.log("🎩 Hat Mode: ENABLED");
+            console.log("Hat Mode: ENABLED");
         } else {
             isHatModeActive = false;
             lastCoords = []; 
-            console.log("🎩 Hat Mode: DISABLED (Clean up active)");
+            console.log("Hat Mode: DISABLED (Clean up active)");
         }
     }
 
     function injectPrompt() {
-        // Look for the specific prompt dropdown, fallback to any select, or log a warning
-        const promptSelect = document.getElementById('prompt-select') || document.querySelector('select');
-        const promptInput = document.getElementById('prompt-input') || document.querySelector('textarea');
+        // Now targeting the correct ID from the original WebUI source
+        const promptSelect = document.getElementById('promptPreset');
+        const promptInput = document.getElementById('prompt') || document.querySelector('textarea');
         
         if (promptSelect) {
             if (!document.getElementById('hat-showcase-opt')) {
-                console.log("Attaching Hat Check Demo to dropdown:", promptSelect.id || promptSelect.name || "Unnamed Select Element");
+                console.log("Attaching Hat Check Demo to dropdown:", promptSelect.id);
                 
                 const opt = document.createElement('option');
                 opt.id = 'hat-showcase-opt';
@@ -226,4 +226,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Name updated to 'Hat Check Demo'.")
+    print("✅ Success: Name updated to 'Hat Check Demo' and attached to promptPreset.")
