@@ -22,7 +22,7 @@ For the JavaScript regular expressions to parse the bounding boxes correctly, th
 
 In the WebUI settings (or your `.env` configuration), you must set the System Prompt to exactly this:
 
-> "Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of bounding boxes in this exact format: `[label, ymin, xmin, ymax, xmax]`. Use the label 'Person (Hat)' if they have a hat, and 'Person' if they do not. Coordinates must be normalized between 0 and 1000. Do not include any other text."
+> "Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Coordinates must be normalized between 0 and 1000. Do not include any other text or markdown formatting."
 
 ## 🚀 Setup & Installation
 
