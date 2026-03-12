@@ -5,14 +5,14 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT (Updated to request JSON and remove the 1000 normalization limit)
-HAT_PROMPT = 'Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Do not include any other text.'
+# YOUR CUSTOM PROMPT
+HAT_PROMPT = 'Analyze the image. Locate every person and check if they are wearing a hat. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. If no person is found, return []. Do not include any other text.'
 
 # JavaScript payload with standard brackets
 JS_PAYLOAD = r"""
 <script id="blackwell-overlay">
 (function() {
-    console.log("🎮 SHOWCASE READY: Hat Prompt Injected | S, M, R Tuners Active");
+    console.log("🎮 SHOWCASE READY: Hat Prompt Injected | S, M, R Tuners Active | Robust Scaling");
     
     const CUSTOM_PROMPT = `__PROMPT_PLACEHOLDER__`;
 
@@ -64,7 +64,13 @@ JS_PAYLOAD = r"""
         injectPrompt(); 
         mutations.forEach(m => {
             const txt = m.target.textContent;
-            // Now checking for the JSON key instead of square brackets
+            
+            // 1. CLEAR BOXES LOGIC: If text resets, returns empty array, or lacks JSON context
+            if (!txt || txt.trim() === "" || txt.includes("[]") || (txt.length > 10 && !txt.includes("bbox_2d"))) {
+                lastCoords = [];
+            }
+
+            // 2. PARSE NEW BOXES
             if (txt && txt.includes('bbox_2d')) {
                 const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*,\s*"label":\s*"([^"]+)"}/g;
                 let match;
@@ -80,7 +86,7 @@ JS_PAYLOAD = r"""
     function render() {
         const video = document.querySelector('video');
         const canvas = setupCanvas();
-        if (video && canvas && lastCoords.length > 0) {
+        if (video && canvas) {
             if (canvas.width !== video.clientWidth || canvas.height !== video.clientHeight) {
                 canvas.width = video.clientWidth;
                 canvas.height = video.clientHeight;
@@ -88,49 +94,79 @@ JS_PAYLOAD = r"""
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            lastCoords.forEach(match => {
-                // Updated variable mapping to match the JSON Regex capture groups
-                const label = match[5].trim();
-                
-                // Fetch the intrinsic resolution of the webcam frame (fallback to 640x480)
-                const vidW = video.videoWidth || 640;
-                const vidH = video.videoHeight || 480;
+            if (lastCoords.length > 0) {
+                lastCoords.forEach(match => {
+                    const label = match[5].trim();
+                    
+                    const vidW = video.videoWidth || 640;
+                    const vidH = video.videoHeight || 480;
+                    const domW = canvas.width;
+                    const domH = canvas.height;
 
-                // Divide by the actual video dimensions instead of 1000
-                let x1 = parseInt(match[1], 10) / vidW;
-                let y1 = parseInt(match[2], 10) / vidH;
-                let x2 = parseInt(match[3], 10) / vidW;
-                let y2 = parseInt(match[4], 10) / vidH;
+                    // Calculate Aspect Ratios for Letterbox detection
+                    const vidRatio = vidW / vidH;
+                    const domRatio = domW / domH;
 
-                if (rotationAngle === 90) {
-                    let ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
-                    x1 = 1 - oy2; y1 = ox1; x2 = 1 - oy1; y2 = ox2;
-                } else if (rotationAngle === 180) {
-                    x1 = 1 - x1; y1 = 1 - y1; x2 = 1 - x2; y2 = 1 - y2;
-                } else if (rotationAngle === 270) {
-                    let ox1 = x1, oy1 = y1, ox2 = x2, oy2 = y2;
-                    x1 = oy1; y1 = 1 - ox2; x2 = oy2; y2 = 1 - ox1;
-                }
+                    let renderW = domW;
+                    let renderH = domH;
+                    let offsetX = 0;
+                    let offsetY = 0;
 
-                if (swapXY) { let tmpX1 = x1, tmpX2 = x2; x1 = y1; y1 = tmpX1; x2 = y2; y2 = tmpX2; }
-                if (mirrorX) { x1 = 1 - x1; x2 = 1 - x2; }
+                    if (vidRatio > domRatio) {
+                        // Letterboxed (black bars top and bottom)
+                        renderH = domW / vidRatio;
+                        offsetY = (domH - renderH) / 2;
+                    } else {
+                        // Pillarboxed (black bars left and right)
+                        renderW = domH * vidRatio;
+                        offsetX = (domW - renderW) / 2;
+                    }
 
-                const fx = Math.min(x1, x2) * canvas.width;
-                const fy = Math.min(y1, y2) * canvas.height;
-                const fw = Math.abs(x2 - x1) * canvas.width;
-                const fh = Math.abs(y2 - y1) * canvas.height;
+                    // 1. Normalize based on intrinsic video resolution (0.0 to 1.0)
+                    let nx1 = parseInt(match[1], 10) / vidW;
+                    let ny1 = parseInt(match[2], 10) / vidH;
+                    let nx2 = parseInt(match[3], 10) / vidW;
+                    let ny2 = parseInt(match[4], 10) / vidH;
 
-                ctx.strokeStyle = label.includes('Hat') ? "#00FF00" : "#00CCFF";
-                ctx.lineWidth = 4;
-                ctx.strokeRect(fx, fy, fw, fh);
-                
-                ctx.fillStyle = ctx.strokeStyle;
-                ctx.fillRect(fx, fy - 25, label.length * 10 + 20, 25);
-                ctx.fillStyle = "black";
-                ctx.font = "bold 14px sans-serif";
-                ctx.fillText(label.toUpperCase(), fx + 5, fy - 7);
-            });
+                    // 2. Apply Tuners to Normalized Coordinates
+                    if (rotationAngle === 90) {
+                        let ox1 = nx1, oy1 = ny1, ox2 = nx2, oy2 = ny2;
+                        nx1 = 1 - oy2; ny1 = ox1; nx2 = 1 - oy1; ny2 = ox2;
+                    } else if (rotationAngle === 180) {
+                        nx1 = 1 - nx1; ny1 = 1 - ny1; nx2 = 1 - nx2; ny2 = 1 - ny2;
+                    } else if (rotationAngle === 270) {
+                        let ox1 = nx1, oy1 = ny1, ox2 = nx2, oy2 = ny2;
+                        nx1 = oy1; ny1 = 1 - ox2; nx2 = oy2; ny2 = 1 - ox1;
+                    }
+
+                    if (swapXY) { let tmpX1 = nx1, tmpX2 = nx2; nx1 = ny1; ny1 = tmpX1; nx2 = ny2; ny2 = tmpX2; }
+                    if (mirrorX) { nx1 = 1 - nx1; nx2 = 1 - nx2; }
+
+                    // 3. Map to Canvas with Robust Aspect-Ratio Offsets
+                    let px1 = nx1 * renderW + offsetX;
+                    let py1 = ny1 * renderH + offsetY;
+                    let px2 = nx2 * renderW + offsetX;
+                    let py2 = ny2 * renderH + offsetY;
+
+                    const fx = Math.min(px1, px2);
+                    const fy = Math.min(py1, py2);
+                    const fw = Math.abs(px2 - px1);
+                    const fh = Math.abs(py2 - py1);
+
+                    // Draw
+                    ctx.strokeStyle = label.includes('Hat') ? "#00FF00" : "#00CCFF";
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(fx, fy, fw, fh);
+                    
+                    ctx.fillStyle = ctx.strokeStyle;
+                    ctx.fillRect(fx, fy - 25, label.length * 10 + 20, 25);
+                    ctx.fillStyle = "black";
+                    ctx.font = "bold 14px sans-serif";
+                    ctx.fillText(label.toUpperCase(), fx + 5, fy - 7);
+                });
+            }
             
+            // Tuner HUD always visible
             ctx.fillStyle = "rgba(255,255,255,0.7)";
             ctx.font = "12px monospace";
             ctx.fillText(`R:${rotationAngle} S:${swapXY} M:${mirrorX}`, 10, canvas.height - 10);
@@ -161,4 +197,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Prompt injected and tuner active. No Syntax Errors.")
+    print("✅ Success: Prompt injected, tuners active, and robust scaling applied.")
