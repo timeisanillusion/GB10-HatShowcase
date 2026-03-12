@@ -18,20 +18,21 @@ function processVlmResponse(vlmTextResponse) {
         canvas.height = videoElement.clientHeight;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Regex for Qwen format: [Label, ymin, xmin, ymax, xmax]
-        const regex = /\[([^,\]]+?),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]/g;
+        // Regex for Qwen Native JSON format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "..."}
+        const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\],\s*"label":\s*"([^"]+)"}/g;
         let match;
         let foundDetection = false;
 
         while ((match = regex.exec(vlmTextResponse)) !== null) {
             foundDetection = true;
-            const label = match[1].trim();
             
             // Normalize 0-1000 coordinates to pixel values
+            // Now correctly mapped to standard xmin, ymin, xmax, ymax
+            const xmin = (parseInt(match[1], 10) / 1000) * canvas.width;
             const ymin = (parseInt(match[2], 10) / 1000) * canvas.height;
-            const xmin = (parseInt(match[3], 10) / 1000) * canvas.width;
+            const xmax = (parseInt(match[3], 10) / 1000) * canvas.width;
             const ymax = (parseInt(match[4], 10) / 1000) * canvas.height;
-            const xmax = (parseInt(match[5], 10) / 1000) * canvas.width;
+            const label = match[5].trim();
 
             const width = xmax - xmin;
             const height = ymax - ymin;
@@ -60,9 +61,10 @@ function processVlmResponse(vlmTextResponse) {
 const observer = new MutationObserver((mutations) => {
     for (let mutation of mutations) {
         const nodeText = mutation.target.textContent || "";
-        if (nodeText.includes("[") && nodeText.includes("]")) {
-            // If the text matches the coordinate pattern
-            if (/\[.*?,\s*\d+,\s*\d+,\s*\d+,\s*\d+\]/.test(nodeText)) {
+        // Check for the new JSON key instead of square brackets
+        if (nodeText.includes("bbox_2d")) {
+            // Quick check for the JSON coordinate pattern
+            if (/{"bbox_2d":\s*\[\d+,\s*\d+,\s*\d+,\s*\d+\],\s*"label":\s*"[^"]+"}/.test(nodeText)) {
                 processVlmResponse(nodeText);
             }
         }
