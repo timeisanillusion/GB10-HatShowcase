@@ -5,14 +5,14 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
-# YOUR CUSTOM PROMPT
-HAT_PROMPT = 'Analyze the image. Locate the main, prominent person in the foreground. Ignore background objects, shadows, and false positives. Return ONLY a list of JSON objects in this exact format: {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person (Hat)"} or {"bbox_2d": [xmin, ymin, xmax, ymax], "label": "Person"}. Coordinates MUST be normalized between 0 and 1000. If no prominent person is clearly visible, return []. Do not include any other text.'
+# YOUR CUSTOM PROMPT (Optimized for the 7B's preferred flat array format)
+HAT_PROMPT = 'Analyze the image. Locate the main person in the foreground. Ignore background objects. Return ONLY a list of arrays in this exact format: [[xmin, ymin, xmax, ymax, "Person (Hat)"]] or [[xmin, ymin, xmax, ymax, "Person"]]. Coordinates must be scaled 0 to 1000. If no person is found, return []. Do not include any other text.'
 
 # JavaScript payload
 JS_PAYLOAD = r"""
 <script id="blackwell-overlay">
 (function() {
-    console.log("🎮 SHOWCASE READY: Hat Prompt Injected | S, M, R Tuners Active | Robust Scaling | State Manager Active");
+    console.log("🎮 SHOWCASE READY: Hat Check Demo | S, M, R Tuners Active | Array Parsing | Clamped Coordinates");
     
     const CUSTOM_PROMPT = `__PROMPT_PLACEHOLDER__`;
     let isHatModeActive = true; 
@@ -30,7 +30,6 @@ JS_PAYLOAD = r"""
     }
 
     function injectPrompt() {
-        // Now targeting the correct ID from the original WebUI source
         const promptSelect = document.getElementById('promptPreset');
         const promptInput = document.getElementById('prompt') || document.querySelector('textarea');
         
@@ -92,12 +91,14 @@ JS_PAYLOAD = r"""
         mutations.forEach(m => {
             const txt = m.target.textContent;
             
-            if (txt && txt.includes("[]")) {
+            // Streaming-safe clear logic
+            if (txt && txt.trim() === "[]") {
                 lastCoords = [];
             }
 
-            if (txt && txt.includes('bbox_2d')) {
-                const regex = /{"bbox_2d":\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*,\s*"label":\s*"([^"]+)"}/g;
+            // Regex parsing the clean array: [xmin, ymin, xmax, ymax, "Label"]
+            if (txt && txt.includes('[')) {
+                const regex = /\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]+)"\s*\]/g;
                 let match;
                 const found = [];
                 regex.lastIndex = 0;
@@ -157,10 +158,11 @@ JS_PAYLOAD = r"""
                         offsetX = (domW - renderW) / 2;
                     }
 
-                    let nx1 = parseInt(match[1], 10) / 1000;
-                    let ny1 = parseInt(match[2], 10) / 1000;
-                    let nx2 = parseInt(match[3], 10) / 1000;
-                    let ny2 = parseInt(match[4], 10) / 1000;
+                    // Map X/Y in correct order, and clamp max value to 1000 to fix hallucination bug
+                    let nx1 = Math.min(1000, parseInt(match[1], 10)) / 1000;
+                    let ny1 = Math.min(1000, parseInt(match[2], 10)) / 1000;
+                    let nx2 = Math.min(1000, parseInt(match[3], 10)) / 1000;
+                    let ny2 = Math.min(1000, parseInt(match[4], 10)) / 1000;
 
                     if (rotationAngle === 90) {
                         let ox1 = nx1, oy1 = ny1, ox2 = nx2, oy2 = ny2;
@@ -226,4 +228,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Name updated to 'Hat Check Demo' and attached to promptPreset.")
+    print("✅ Success: Array parser patched, boundary clamping applied, and mode toggle active.")
