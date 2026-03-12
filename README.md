@@ -67,10 +67,16 @@ and run:
 python3 apply_patches.py
 ```
 
-**4. Install the Launchers**
+**4. Install the Launchers (optional if using desktop env)**
 
 * Move `start_vlm_showcase.sh` to your home directory (`~`) and make it executable (`chmod +x ~/start_vlm_showcase.sh`).
 * Move `VLM_Showcase.desktop` to your `~/Desktop` and allow execution permissions.
+
+
+
+## 🎮 Running the Showcase
+
+1. Double-click the **VLM 7B Showcase** icon on the GB10 desktop.
 
 Or just run this from the CLI
 ```bash
@@ -78,9 +84,6 @@ chmod +x start_vlm_showcase.sh
 ./start_vlm_showcase.sh
 ```
 
-## 🎮 Running the Showcase
-
-1. Double-click the **VLM 7B Showcase** icon on the GB10 desktop.
 2. A terminal will open, pre-load the model into memory, and print a URL (e.g., `http://192.168.x.x:8090`).
 3. Open that URL on your laptop's browser.
 4. Accept the camera permissions, put on a hat, and step into the frame!
