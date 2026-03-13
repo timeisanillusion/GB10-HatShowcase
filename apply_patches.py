@@ -6,7 +6,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
 # YOUR CUSTOM PROMPT (Engineered with Chain-of-Thought to stop hallucinations)
-HAT_PROMPT = 'Analyze the image. Step 1: Look closely at the person. Are they wearing a hat? (State Yes or No). Step 2: Return a bounding box for the person in this exact array format: [[xmin, ymin, xmax, ymax, "Label"]]. Use the label "Person (Hat)" if Yes, and "Person" if No. Coordinates must be scaled 0 to 1000. If no person is found, return [].'
+HAT_PROMPT = 'Analyze the image, this image is of a room, normally with at least 1 person in it. Step 1: Look closely at the person. Are they wearing a hat? (State Yes or No). Step 2: Use the label "Person (Hat)" if Yes, and "Person" if No. Step 3: Return a bounding box for the person regardless of step 1 in this exact array format: [[ymin, xmin, ymax, xmax, "Label"]]. Coordinates must be scaled 0 to 1000. Step 4: If no person is found, return [].'
 
 # JavaScript payload
 JS_PAYLOAD = r"""
