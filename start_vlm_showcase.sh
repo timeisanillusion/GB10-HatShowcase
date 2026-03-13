@@ -9,7 +9,7 @@ sleep 1
 # 2. DYNAMIC PATHS
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR"
-REPO_DIR="$PROJECT_ROOT/live-vlm-webui"
+REPO_DIR="$PROJECT_ROOT/GB10-HatShowcase/live-vlm-webui"
 VENV_PATH="$REPO_DIR/venv"
 
 # 3. CHOOSE YOUR ENGINE
