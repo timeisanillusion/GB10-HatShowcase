@@ -6,13 +6,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET_HTML = os.path.join(BASE_DIR, "live-vlm-webui", "src", "live_vlm_webui", "static", "index.html")
 
 # YOUR CUSTOM PROMPT (Engineered with Chain-of-Thought to stop hallucinations)
-HAT_PROMPT = 'Analyze the image, this image is of a room, normally with at least 1 person in it. Step 1: Look closely at the person. Are they wearing a hat? (State Yes or No). Step 2: Use the label "Person (Hat)" if Yes, and "Person" if No. Step 3: Return a bounding box for the person regardless of step 1 in this exact array format: [[ymin, xmin, ymax, xmax, "Label"]]. Coordinates must be scaled 0 to 1000. Step 4: If no person is found, return [].'
+HAT_PROMPT = 'Analyze the image. Step 1: Look closely at the person. Are they wearing a hat? (State Yes or No). Step 2: Return a bounding box for the person in this exact array format: [[xmin, ymin, xmax, ymax, "Label"]]. Use the label "Person (Hat)" if Yes, and "Person" if No. Coordinates must be scaled 0 to 1000. If no person is found, return [].'
 
 # JavaScript payload
 JS_PAYLOAD = r"""
 <script id="blackwell-overlay">
 (function() {
-    console.log("🎮 SHOWCASE READY: Hat Check Demo | S, M, R Tuners Active | CoT Parsing | Native Qwen Coordinates");
+    console.log("🎮 SHOWCASE READY: Hat Check Demo | S, M, R, B Tuners Active | CoT Parsing");
     
     const CUSTOM_PROMPT = `__PROMPT_PLACEHOLDER__`;
     let isHatModeActive = true; 
@@ -60,6 +60,7 @@ JS_PAYLOAD = r"""
     let swapXY = false;
     let mirrorX = false;
     let rotationAngle = 0; 
+    let boxRotate = false; // New local rotation toggle
 
     function setupCanvas() {
         const video = document.querySelector('video');
@@ -154,12 +155,13 @@ JS_PAYLOAD = r"""
                         offsetX = (domW - renderW) / 2;
                     }
 
-                    // Native Qwen Order: [ymin, xmin, ymax, xmax]
-                    let ny1 = Math.min(1000, parseInt(match[1], 10)) / 1000; // ymin
-                    let nx1 = Math.min(1000, parseInt(match[2], 10)) / 1000; // xmin
-                    let ny2 = Math.min(1000, parseInt(match[3], 10)) / 1000; // ymax
-                    let nx2 = Math.min(1000, parseInt(match[4], 10)) / 1000; // xmax
+                    // Reverted back to xmin, ymin parsing to match Ollama 7B's preference
+                    let nx1 = Math.min(1000, parseInt(match[1], 10)) / 1000;
+                    let ny1 = Math.min(1000, parseInt(match[2], 10)) / 1000;
+                    let nx2 = Math.min(1000, parseInt(match[3], 10)) / 1000;
+                    let ny2 = Math.min(1000, parseInt(match[4], 10)) / 1000;
 
+                    // Orbital Rotation & Axis Swapping
                     if (rotationAngle === 90) {
                         let ox1 = nx1, oy1 = ny1, ox2 = nx2, oy2 = ny2;
                         nx1 = 1 - oy2; ny1 = ox1; nx2 = 1 - oy1; ny2 = ox2;
@@ -173,10 +175,23 @@ JS_PAYLOAD = r"""
                     if (swapXY) { let tmpX1 = nx1, tmpX2 = nx2; nx1 = ny1; ny1 = tmpX1; nx2 = ny2; ny2 = tmpX2; }
                     if (mirrorX) { nx1 = 1 - nx1; nx2 = 1 - nx2; }
 
+                    // Map to absolute pixels
                     let px1 = nx1 * renderW + offsetX;
                     let py1 = ny1 * renderH + offsetY;
                     let px2 = nx2 * renderW + offsetX;
                     let py2 = ny2 * renderH + offsetY;
+
+                    // Local Rotation (Spin the box in place)
+                    if (boxRotate) {
+                        let cx = (px1 + px2) / 2;
+                        let cy = (py1 + py2) / 2;
+                        let w = Math.abs(px2 - px1);
+                        let h = Math.abs(py2 - py1);
+                        px1 = cx - h / 2;
+                        px2 = cx + h / 2;
+                        py1 = cy - w / 2;
+                        py2 = cy + w / 2;
+                    }
 
                     const fx = Math.min(px1, px2);
                     const fy = Math.min(py1, py2);
@@ -197,7 +212,7 @@ JS_PAYLOAD = r"""
             
             ctx.fillStyle = "rgba(255,255,255,0.7)";
             ctx.font = "12px monospace";
-            ctx.fillText(`R:${rotationAngle} S:${swapXY} M:${mirrorX}`, 10, canvas.height - 10);
+            ctx.fillText(`R:${rotationAngle} S:${swapXY} M:${mirrorX} B:${boxRotate}`, 10, canvas.height - 10);
         }
         requestAnimationFrame(render);
     }
@@ -209,6 +224,7 @@ JS_PAYLOAD = r"""
         if (key === 's') swapXY = !swapXY;
         if (key === 'm') mirrorX = !mirrorX;
         if (key === 'r') rotationAngle = (rotationAngle + 90) % 360;
+        if (key === 'b') boxRotate = !boxRotate;
     });
 })();
 </script>
@@ -224,4 +240,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: CoT prompt and native Qwen coordinate mapping applied.")
+    print("✅ Success: Reminder, use r,b,s,m to fix rotational camera issues.")
