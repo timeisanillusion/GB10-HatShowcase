@@ -240,4 +240,4 @@ if os.path.exists(TARGET_HTML):
     content = content.replace('</body>', FINAL_JS + '</body>')
     with open(TARGET_HTML, 'w') as f:
         f.write(content)
-    print("✅ Success: Reminder, use r,b,s,m to fix rotational camera issues.")
+    print("✅ Success: Local box rotation 'r,b,m,s' keys added.")
