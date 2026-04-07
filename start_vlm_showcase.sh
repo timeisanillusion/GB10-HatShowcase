@@ -9,13 +9,13 @@ sleep 1
 # 2. DYNAMIC PATHS
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR"
-REPO_DIR="$PROJECT_ROOT/GB10-HatShowcase/live-vlm-webui"
+REPO_DIR="$PROJECT_ROOT/live-vlm-webui"
 VENV_PATH="$REPO_DIR/venv"
 
 # 3. CHOOSE YOUR ENGINE
 # Set this to "qwen2.5vl:7b" for near real-time (recommended)
 # Set this to "qwen-72b-slim" for high-accuracy flex
-MODEL="qwen2.5vl:7b"
+MODEL="qwen2.5vl:72b"
 
 echo "Pre-loading $MODEL into Blackwell memory..."
 curl -s -X POST http://127.0.0.1:11434/api/generate -d "{\"model\": \"$MODEL\", \"keep_alive\": \"1h\"}" > /dev/null

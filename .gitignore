@@ -1,10 +1,7 @@
-# Ignore the base NVIDIA repository folder
-live-vlm-webui/
-
 # Ignore Python virtual environments
 venv/
 env/
-.env
+.venv/
 
 # Ignore Python cache files
 __pycache__/
@@ -17,3 +14,17 @@ desktop.ini
 
 # Ignore IDE configuration folders (if you use VS Code)
 .vscode/
+
+# Ignore build artifacts
+*.whl
+build/
+dist/
+*.egg-info/
+
+# SSL certificates (sensitive)
+cert.pem
+key.pem
+*.pem
+
+# Jupyter notebooks
+.ipynb_checkpoints/

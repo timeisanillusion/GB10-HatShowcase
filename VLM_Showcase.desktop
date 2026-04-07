@@ -1,8 +1,0 @@
-[Desktop Entry]
-Version=1.0
-Name=VLM 7B Showcase
-Comment=Launch the Live VLM Object Detection Server
-Exec=gnome-terminal -- bash -c "~/start_vlm_showcase.sh; exec bash"
-Icon=utilities-terminal
-Terminal=false
-Type=Application
