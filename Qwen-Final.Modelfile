@@ -1,7 +1,0 @@
-FROM qwen2.5vl:72b
-# Strictly limit context to 2048 to prevent the 262k runaway allocation
-PARAMETER num_ctx 2048
-# Stop the auto-scaler from getting greedy
-PARAMETER num_predict 512
-PARAMETER temperature 0
-SYSTEM "Provide detections in [label, ymin, xmin, ymax, xmax] format."
