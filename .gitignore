@@ -38,6 +38,7 @@ key.pem
 .claude/
 CLAUDE.md
 *.Modelfile
+Modelfile
 
 #Old Files
 apply_patches.py
