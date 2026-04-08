@@ -27,6 +27,7 @@ from openai import AsyncOpenAI
 from PIL import Image
 from typing import Optional
 import logging
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,10 @@ class VLMService:
         self.api_key = api_key if api_key else "EMPTY"
         self.prompt = prompt
         self.max_tokens = max_tokens
-        self.client = AsyncOpenAI(base_url=api_base, api_key=api_key)
+        # Allow up to 5 minutes for a single inference request — large models
+        # (e.g. 72B) can take a while to load into memory on first use.
+        self._client_timeout = httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=10.0)
+        self.client = AsyncOpenAI(base_url=api_base, api_key=api_key, timeout=self._client_timeout)
         self.current_response = "Initializing..."
         self.is_processing = False
         self._processing_lock = asyncio.Lock()
@@ -126,10 +130,42 @@ class VLMService:
                 "temperature": 0.7,
             }
 
-            # Call API
-            response = await self.client.chat.completions.create(
-                model=self.model, messages=messages, max_tokens=self.max_tokens, temperature=0.7
-            )
+            # Call API — with retry for transient model-loading failures.
+            # Large models (e.g. 72B) can take time to swap into memory;
+            # Ollama may return a loading error on the first few attempts.
+            MAX_RETRIES = 3
+            RETRY_DELAYS = [8, 16, 30]  # seconds between attempts
+            last_exc: Optional[Exception] = None
+
+            for attempt in range(MAX_RETRIES):
+                try:
+                    response = await self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        max_tokens=self.max_tokens,
+                        temperature=0.7,
+                    )
+                    last_exc = None
+                    break  # success — exit retry loop
+                except Exception as exc:
+                    last_exc = exc
+                    raw = str(exc)
+                    logger.warning(
+                        f"[{self.model}] attempt {attempt + 1}/{MAX_RETRIES} failed: {raw}"
+                    )
+                    if self._is_loading_error(raw) and attempt < MAX_RETRIES - 1:
+                        wait = RETRY_DELAYS[attempt]
+                        logger.info(f"[{self.model}] model loading — retrying in {wait}s")
+                        self.current_response = (
+                            f"[Loading] {self.model} is loading into memory, "
+                            f"retrying in {wait}s (attempt {attempt + 1}/{MAX_RETRIES})…"
+                        )
+                        await asyncio.sleep(wait)
+                    else:
+                        raise  # non-loading error or out of retries — propagate
+
+            if last_exc is not None:
+                raise last_exc
 
             # Store response payload for debug (serialize to dict)
             try:
@@ -184,21 +220,60 @@ class VLMService:
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Error analyzing image: {error_msg}")
+            # Always log the raw exception so the server logs show the real cause
+            logger.error(f"Error analyzing image with model '{self.model}': {error_msg}", exc_info=True)
+            return self._format_error(error_msg)
 
-            # Provide more helpful error messages for common issues
-            if "failed to load" in error_msg.lower() or "resource" in error_msg.lower():
-                helpful_msg = f"[ERROR] Model loading error: The model may not be loaded in Ollama or lacks resources. Try: 1) Pull the model with 'ollama pull {self.model}', 2) Check Ollama server logs, or 3) Switch to a smaller model."
-                logger.warning(f"User-facing error: {helpful_msg}")
-                return helpful_msg
-            elif "not found" in error_msg.lower() or "404" in error_msg:
-                helpful_msg = f"[ERROR] Model not found: '{self.model}' is not available in Ollama. Pull it with: ollama pull {self.model}"
-                logger.warning(f"User-facing error: {helpful_msg}")
-                return helpful_msg
-            else:
-                helpful_msg = f"[ERROR] VLM Error: {error_msg}"
-                logger.warning(f"User-facing error: {helpful_msg}")
-                return helpful_msg
+    def _is_loading_error(self, error_msg: str) -> bool:
+        """Return True if the error looks like a temporary model-loading failure."""
+        lower = error_msg.lower()
+        loading_signals = (
+            "failed to load",
+            "model is loading",
+            "model is currently loading",
+            "not enough memory",
+            "out of memory",
+            "cuda out of memory",
+            "insufficient memory",
+            "resourceexhausted",
+            "resource exhausted",
+            "loading model",
+            "context deadline exceeded",
+        )
+        return any(s in lower for s in loading_signals)
+
+    def _format_error(self, error_msg: str) -> str:
+        """Turn a raw exception string into a readable user-facing message.
+
+        The raw error text is always included so it is visible in the UI and
+        easy to copy when reporting issues — previously it was silently swallowed
+        by the pattern-matching logic.
+        """
+        lower = error_msg.lower()
+        if self._is_loading_error(error_msg):
+            return (
+                f"[ERROR] Model loading error — Ollama says: {error_msg}\n"
+                f"Tip: Run 'ollama run {self.model}' in a terminal first to pre-load the model, "
+                f"then switch back to it here."
+            )
+        elif "not found" in lower or "404" in error_msg:
+            return (
+                f"[ERROR] Model '{self.model}' not found — pull it with: "
+                f"ollama pull {self.model}\nDetails: {error_msg}"
+            )
+        elif "timeout" in lower or "timed out" in lower:
+            return (
+                f"[ERROR] Request timed out waiting for '{self.model}'. "
+                f"The model may still be loading — try again in a moment.\n"
+                f"Details: {error_msg}"
+            )
+        elif "connection" in lower or "refused" in lower:
+            return (
+                f"[ERROR] Cannot reach Ollama at {self.api_base}. "
+                f"Is Ollama running?\nDetails: {error_msg}"
+            )
+        else:
+            return f"[ERROR] {error_msg}"
 
     def is_image_compatible_model(self) -> bool:
         """
@@ -312,8 +387,8 @@ class VLMService:
         if api_key is not None:  # Allow empty string
             self.api_key = api_key if api_key else "EMPTY"
 
-        # Recreate the client with new settings
-        self.client = AsyncOpenAI(base_url=self.api_base, api_key=self.api_key)
+        # Recreate the client with new settings (keep the same generous timeout)
+        self.client = AsyncOpenAI(base_url=self.api_base, api_key=self.api_key, timeout=self._client_timeout)
 
         masked_key = (
             "***" + self.api_key[-4:]
