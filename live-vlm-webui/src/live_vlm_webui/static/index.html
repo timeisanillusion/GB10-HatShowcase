@@ -2602,6 +2602,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         let boxRotate = false; // New local rotation toggle
         let lastCoords = [];
         let isHatCheckModeActive = false; // True when YOLO_HAT mode is selected
+        let modelDropdownInitialized = false; // True once fetchModels() has set the default
 
         // Enumerate and list available cameras
         async function enumerateCameras() {
@@ -3379,6 +3380,10 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     document.getElementById('promptText').disabled = true;
                     document.getElementById('maxTokens').disabled = true;
 
+                    // Mark the dropdown as initialised so server_config messages
+                    // arriving late cannot override our YOLO default.
+                    modelDropdownInitialized = true;
+
                     // Tell the server the initial model selection
                     console.log('Models loaded — defaulting to YOLO');
                     applyApiSettings({ showFeedback: false });
@@ -4135,12 +4140,16 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     // Don't show status messages in result balloon (too flashy)
                     // Status is already shown in the header
                 } else if (data.type === 'server_config') {
-                    // Server sent its current configuration (model, api_base, prompt)
+                    // Server sent its current configuration (model, api_base, prompt).
+                    // Only restore the model into the dropdown before fetchModels() has
+                    // run — once the dropdown is initialised we always want YOLO as the
+                    // default and don't let a stale server model override it.
                     if (data.model) {
-                        document.getElementById('modelName').textContent = data.model;
-                        // Also update the model select if it matches
-                        if (modelSelect.querySelector(`option[value="${data.model}"]`)) {
-                            modelSelect.value = data.model;
+                        if (!modelDropdownInitialized) {
+                            document.getElementById('modelName').textContent = data.model;
+                            if (modelSelect.querySelector(`option[value="${data.model}"]`)) {
+                                modelSelect.value = data.model;
+                            }
                         }
                     }
                     if (data.api_base) {
