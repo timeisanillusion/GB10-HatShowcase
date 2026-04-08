@@ -79,12 +79,23 @@ class YoloWorldDetectionBackend(DetectionBackend):
         """
         Update the detection classes based on a text prompt.
 
+        This updates both the internal class list AND calls model.set_classes()
+        on the underlying ultralytics YOLO-World model so it actually uses the
+        custom vocabulary at inference time.
+
         Args:
             prompt: Comma-separated list of classes (e.g., "person, hat, bag")
         """
         self.prompt = prompt
         self._current_classes = [c.strip() for c in prompt.split(",")]
         logger.info(f"YOLO-World classes updated: {self._current_classes}")
+
+        # Tell the ultralytics model which vocabulary to use.
+        # Without this call YOLO-World falls back to COCO classes and will
+        # never detect open-vocabulary items like "hat".
+        if self.model is not None:
+            self.model.set_classes(self._current_classes)
+            logger.info(f"YOLO-World model.set_classes() called: {self._current_classes}")
 
     async def detect(self, image: Image.Image) -> DetectionResult:
         """

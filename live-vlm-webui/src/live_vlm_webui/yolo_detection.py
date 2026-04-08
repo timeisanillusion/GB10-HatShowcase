@@ -197,7 +197,7 @@ def associate_hats_with_persons(result: DetectionResult) -> DetectionResult:
     persons: List[Dict[str, Any]] = []
     hats: List[Dict[str, Any]] = []
 
-    HAT_KEYWORDS = {"hat", "cap", "helmet", "beanie", "beret", "hardhat", "hard hat"}
+    HAT_KEYWORDS = {"hat", "cap", "baseball cap", "helmet", "beanie", "beret", "hardhat", "hard hat"}
 
     for i, label in enumerate(result.labels):
         lower = label.lower()
@@ -214,8 +214,11 @@ def associate_hats_with_persons(result: DetectionResult) -> DetectionResult:
         ymin, xmin, ymax, xmax = person["box"]
         person_height = ymax - ymin
 
-        # Head zone = top 30 % of the person bounding box (in 0-1000 scale)
-        head_zone_ymax = ymin + person_height * 0.30
+        # Head zone = top 40 % of the person bounding box (in 0-1000 scale).
+        # Hats sit on the head which is roughly the top third of a standing
+        # person, but we use 40 % to give a generous margin for partial frames
+        # and people who are seated or crouching.
+        head_zone_ymax = ymin + person_height * 0.40
 
         has_hat = False
         for hat in hats:
@@ -233,7 +236,7 @@ def associate_hats_with_persons(result: DetectionResult) -> DetectionResult:
             if inter_h > 0 and inter_w > 0:
                 hat_area = (hymax - hymin) * (hxmax - hxmin)
                 overlap_area = inter_h * inter_w
-                if hat_area > 0 and (overlap_area / hat_area) >= 0.30:
+                if hat_area > 0 and (overlap_area / hat_area) >= 0.20:
                     has_hat = True
                     break
 

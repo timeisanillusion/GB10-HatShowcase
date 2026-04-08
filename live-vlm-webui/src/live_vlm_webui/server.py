@@ -471,7 +471,7 @@ async def websocket_handler(request):
                                     detection_backend = create_detection_backend(
                                         backend_type="yolo_world",
                                         model_name="yolov8s-worldv2.pt",
-                                        prompt="person, hat",
+                                        prompt="person, hat, cap, baseball cap, hard hat, helmet, beanie",
                                     )
                                     session["detection_backend"] = detection_backend
                                     logger.info(f"[{session_id}] YOLO Hat Check backend initialized")
