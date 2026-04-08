@@ -2255,7 +2255,8 @@ limitations under the License.
                             </div>
                         </div>
                         <select id="modelSelect">
-                            <option value="YOLO" selected>YOLO (Local Object Detection)</option>
+                            <option value="YOLO" selected>YOLO (Object Detection)</option>
+                            <option value="YOLO_HAT">YOLO (Hat Check)</option>
                             <option value="">Loading models...</option>
                         </select>
                     </div>
@@ -2600,6 +2601,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         let rotationAngle = 0;
         let boxRotate = false; // New local rotation toggle
         let lastCoords = [];
+        let isHatCheckModeActive = false; // True when YOLO_HAT mode is selected
 
         // Enumerate and list available cameras
         async function enumerateCameras() {
@@ -3405,7 +3407,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             document.getElementById('modelName').textContent = newModel;
 
             // Enable/disable prompt fields based on model
-            const isYoloMode = newModel.toUpperCase() === 'YOLO';
+            const isYoloMode = ['YOLO', 'YOLO_HAT'].includes(newModel.toUpperCase());
             document.getElementById('promptPreset').disabled = isYoloMode;
             document.getElementById('promptText').disabled = isYoloMode;
             document.getElementById('maxTokens').disabled = isYoloMode;
@@ -3431,7 +3433,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         // Initialize prompt field state on load
         const initialModel = modelSelect.value;
         if (initialModel) {
-            const isYoloMode = initialModel.toUpperCase() === 'YOLO';
+            const isYoloMode = ['YOLO', 'YOLO_HAT'].includes(initialModel.toUpperCase());
             document.getElementById('promptPreset').disabled = isYoloMode;
             document.getElementById('promptText').disabled = isYoloMode;
             document.getElementById('maxTokens').disabled = isYoloMode;
@@ -4169,14 +4171,20 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     // Model was updated on server
                     if (data.model) {
                         document.getElementById('modelName').textContent = data.model;
-                        console.log('Model updated to:', data.model, 'is_yolo_mode:', data.is_yolo_mode);
+                        console.log('Model updated to:', data.model, 'is_yolo_mode:', data.is_yolo_mode, 'is_hat_check_mode:', data.is_hat_check_mode);
+
+                        // Track hat check mode for the renderer
+                        isHatCheckModeActive = !!data.is_hat_check_mode;
 
                         // Handle YOLO mode
                         if (data.is_yolo_mode) {
-                            // Update status to indicate YOLO mode
-                            updateStatus('YOLO Object Detection Active', 'connected');
+                            const modeLabel = data.is_hat_check_mode
+                                ? 'YOLO Hat Check Active'
+                                : 'YOLO Object Detection Active';
+                            updateStatus(modeLabel, 'connected');
                         } else {
                             // Clear YOLO detection results and overlay when switching to VLM mode
+                            isHatCheckModeActive = false;
                             console.log('Clearing YOLO detection result and canvas');
                             console.log('Before: yoloDetectionResult =', yoloDetectionResult);
                             yoloDetectionResult = null;
@@ -4748,24 +4756,63 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             // Get label and confidence
             const label = detectionResult.labels[index] || "unknown";
             const confidence = detectionResult.confidences ? (detectionResult.confidences[index] * 100).toFixed(1) : "";
+            const labelLower = label.toLowerCase();
 
-            // Color based on label content
-            let color = "#00FF00"; // Green for default/hat
-            if (label.toLowerCase().includes('no hat') || label.toLowerCase().includes('person')) {
-                color = "#00CCFF"; // Blue for person without hat
+            if (isHatCheckModeActive) {
+                // ── Hat Check rendering ──────────────────────────────────────────
+                // Green  = person confirmed wearing a hat
+                // Red    = person confirmed NOT wearing a hat
+                const wearing = labelLower === 'hat';
+                const boxColor  = wearing ? '#00FF66' : '#FF3333';
+                const fillColor = wearing ? 'rgba(0,255,102,0.18)' : 'rgba(255,51,51,0.18)';
+                const icon      = wearing ? '✓ HAT' : '✗ NO HAT';
+                const confText  = confidence ? ` ${confidence}%` : '';
+                const chipText  = `${icon}${confText}`;
+
+                // Semi-transparent fill to make the person box obvious
+                ctx.fillStyle = fillColor;
+                ctx.fillRect(fx, fy, fw, fh);
+
+                // Thick coloured border
+                ctx.strokeStyle = boxColor;
+                ctx.lineWidth = 5;
+                ctx.strokeRect(fx, fy, fw, fh);
+
+                // Chip background — generous padding, large font
+                ctx.font = 'bold 16px sans-serif';
+                const chipW = ctx.measureText(chipText).width + 22;
+                const chipH = 28;
+                const chipY = fy > chipH + 4 ? fy - chipH - 2 : fy + 4;
+
+                ctx.fillStyle = boxColor;
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(fx, chipY, chipW, chipH, 5);
+                } else {
+                    ctx.rect(fx, chipY, chipW, chipH);
+                }
+                ctx.fill();
+
+                ctx.fillStyle = '#000000';
+                ctx.fillText(chipText, fx + 11, chipY + chipH - 7);
+            } else {
+                // ── Standard YOLO rendering ──────────────────────────────────────
+                let color = "#00FF00"; // Green default
+                if (labelLower.includes('no hat') || labelLower === 'person') {
+                    color = "#00CCFF"; // Blue for plain person detections
+                }
+
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(fx, fy, fw, fh);
+
+                const labelText = confidence ? `${label} ${confidence}%` : label;
+                ctx.fillStyle = color;
+                ctx.fillRect(fx, fy - 22, labelText.length * 9 + 15, 20);
+                ctx.fillStyle = "black";
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(labelText.toUpperCase(), fx + 5, fy - 5);
             }
-
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 3;
-            ctx.strokeRect(fx, fy, fw, fh);
-
-            // Draw label with confidence
-            const labelText = confidence ? `${label} ${confidence}%` : label;
-            ctx.fillStyle = color;
-            ctx.fillRect(fx, fy - 22, labelText.length * 9 + 15, 20);
-            ctx.fillStyle = "black";
-            ctx.font = "bold 12px sans-serif";
-            ctx.fillText(labelText.toUpperCase(), fx + 5, fy - 5);
         });
     }
 

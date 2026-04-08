@@ -271,8 +271,9 @@ async def models(request):
 
         models_list = []
 
-        # Always add YOLO option for detection-only mode
+        # Always add YOLO options for detection-only modes
         models_list.append({"id": "YOLO", "name": "YOLO (Object Detection)", "current": False})
+        models_list.append({"id": "YOLO_HAT", "name": "YOLO (Hat Check)", "current": False})
 
         if api_base:
             # Query models from the provided API endpoint
@@ -303,9 +304,10 @@ async def models(request):
         )
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
-        # Return current model as fallback (always include YOLO option)
+        # Return current model as fallback (always include YOLO options)
         models_list = [
-            {"id": "YOLO", "name": "YOLO (Object Detection)", "current": False}
+            {"id": "YOLO", "name": "YOLO (Object Detection)", "current": False},
+            {"id": "YOLO_HAT", "name": "YOLO (Hat Check)", "current": False},
         ]
         if sessions.get("default"):
             default_svc = sessions["default"]["vlm_service"]
@@ -436,8 +438,10 @@ async def websocket_handler(request):
                         api_key = data.get("api_key", "").strip()
 
                         if new_model and svc:
-                            # Check if YOLO mode is selected
-                            is_yolo_mode = new_model.upper() == "YOLO"
+                            # Check if a YOLO mode is selected
+                            model_upper = new_model.upper()
+                            is_yolo_mode = model_upper in ("YOLO", "YOLO_HAT")
+                            is_hat_check_mode = model_upper == "YOLO_HAT"
 
                             svc.model = new_model
                             if api_base:
@@ -449,16 +453,33 @@ async def websocket_handler(request):
                                 logger.info(f"[{session_id}] Model updated: {new_model}")
 
                             # Check if model likely supports images and warn if not
-                            if svc.is_image_compatible_model():
-                                logger.info(f"[{session_id}] Model '{new_model}' appears to support image input")
-                            else:
-                                logger.warning(
-                                    f"[{session_id}] Model '{new_model}' appears to be text-only "
-                                    f"and may not support image input. Consider using a VLM like llama-3.2-vision."
-                                )
+                            if not is_yolo_mode:
+                                if svc.is_image_compatible_model():
+                                    logger.info(f"[{session_id}] Model '{new_model}' appears to support image input")
+                                else:
+                                    logger.warning(
+                                        f"[{session_id}] Model '{new_model}' appears to be text-only "
+                                        f"and may not support image input. Consider using a VLM like llama-3.2-vision."
+                                    )
 
-                            # Configure detection backend for YOLO mode
-                            if is_yolo_mode:
+                            # Configure detection backend for YOLO modes
+                            if is_hat_check_mode:
+                                # Hat Check: YOLO-World detecting 'person' and 'hat' classes,
+                                # post-processed in video_processor to associate hats with persons.
+                                try:
+                                    from .detection import create_detection_backend
+                                    detection_backend = create_detection_backend(
+                                        backend_type="yolo_world",
+                                        model_name="yolov8s-worldv2.pt",
+                                        prompt="person, hat",
+                                    )
+                                    session["detection_backend"] = detection_backend
+                                    logger.info(f"[{session_id}] YOLO Hat Check backend initialized")
+                                except Exception as e:
+                                    logger.warning(f"[{session_id}] Could not initialize YOLO Hat Check: {e}")
+                                    session["detection_backend"] = None
+                            elif is_yolo_mode:
+                                # Standard YOLO: general object detection
                                 try:
                                     from .detection import create_detection_backend
                                     detection_backend = create_detection_backend(
@@ -469,24 +490,18 @@ async def websocket_handler(request):
                                     logger.info(f"[{session_id}] YOLO detection backend initialized")
                                 except Exception as e:
                                     logger.warning(f"[{session_id}] Could not initialize YOLO detection: {e}")
-                                    # Fall back to VLM mode for detection
                                     session["detection_backend"] = None
                             else:
-                                # Clear detection backend for VLM mode
+                                # VLM mode: clear detection backend
                                 session["detection_backend"] = None
 
                             # Update all processor tracks with the new detection backend
                             for proc_track in session.get("processor_tracks", set()):
                                 proc_track.detection_backend = session.get("detection_backend")
-                                # Clear last detection result when switching modes
-                                if is_yolo_mode:
-                                    # When switching TO YOLO, clear stale VLM result
-                                    proc_track.last_detection_result = None
-                                    proc_track.last_detection_time = 0
-                                else:
-                                    # When switching TO VLM, clear YOLO result
-                                    proc_track.last_detection_result = None
-                                    proc_track.last_detection_time = 0
+                                proc_track.hat_check_mode = is_hat_check_mode
+                                # Clear stale results whenever mode changes
+                                proc_track.last_detection_result = None
+                                proc_track.last_detection_time = 0
 
                             await ws.send_json(
                                 {
@@ -494,6 +509,7 @@ async def websocket_handler(request):
                                     "model": new_model,
                                     "api_base": svc.api_base,
                                     "is_yolo_mode": is_yolo_mode,
+                                    "is_hat_check_mode": is_hat_check_mode,
                                 }
                             )
 

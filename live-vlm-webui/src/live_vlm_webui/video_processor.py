@@ -51,7 +51,7 @@ class VideoProcessorTrack(VideoStreamTrack):
     # Max allowed latency before dropping frames (in seconds, 0 = disabled)
     max_frame_latency = 0.0
 
-    def __init__(self, track: VideoStreamTrack, vlm_service: VLMService, text_callback=None, detection_backend: Optional[DetectionBackend] = None):
+    def __init__(self, track: VideoStreamTrack, vlm_service: VLMService, text_callback=None, detection_backend: Optional[DetectionBackend] = None, hat_check_mode: bool = False):
         super().__init__()
         self.track = track
         self.vlm_service = vlm_service
@@ -66,6 +66,8 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.frame_time_base = None  # Time base for PTS conversion (e.g., 1/90000)
         self.last_detection_result: Optional[DetectionResult] = None
         self.last_detection_time = 0  # Track when detection was last run
+        # Hat check mode: post-process YOLO-World results to associate hats with persons
+        self.hat_check_mode: bool = hat_check_mode
 
     @property
     def detection_backend(self) -> Optional[DetectionBackend]:
@@ -243,15 +245,26 @@ class VideoProcessorTrack(VideoStreamTrack):
         """
         Run YOLO detection on an image.
 
+        In hat_check_mode the raw YOLO-World result (which contains both 'person' and
+        'hat' detections) is post-processed by associate_hats_with_persons() so that
+        the returned result contains only person boxes labelled "Hat" or "No Hat".
+
         Args:
             image: PIL Image to analyze
 
         Returns:
-            DetectionResult from YOLO
+            DetectionResult from YOLO (possibly post-processed for hat check mode)
         """
         if self.detection_backend is None:
             return DetectionResult(boxes=[], labels=[], confidences=[])
-        return await self.detection_backend.detect(image)
+
+        raw_result = await self.detection_backend.detect(image)
+
+        if self.hat_check_mode:
+            from .yolo_detection import associate_hats_with_persons
+            return associate_hats_with_persons(raw_result)
+
+        return raw_result
 
     def get_last_detection(self) -> Optional[DetectionResult]:
         """Get the last YOLO detection result."""

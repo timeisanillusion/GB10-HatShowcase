@@ -174,3 +174,71 @@ def get_hat_boxes(result: DetectionResult) -> List[Dict[str, Any]]:
                 "confidence": result.confidences[i],
             })
     return hats
+
+
+def associate_hats_with_persons(result: DetectionResult) -> DetectionResult:
+    """
+    Post-process a YOLO-World DetectionResult (containing 'person' and 'hat' detections)
+    to produce a person-only result where each person is labelled with their hat status.
+
+    Algorithm:
+      - Separate detections into person boxes and hat boxes.
+      - For each person, define a "head zone" as the top 30 % of the bounding box.
+      - A hat is considered worn by a person when at least 30 % of the hat box area
+        overlaps with that person's head zone.
+      - The output contains only person boxes, labelled "Hat" (wearing) or "No Hat" (not wearing).
+
+    Args:
+        result: DetectionResult from YOLO-World with mixed person/hat detections.
+
+    Returns:
+        DetectionResult with one entry per person, labelled "Hat" or "No Hat".
+    """
+    persons: List[Dict[str, Any]] = []
+    hats: List[Dict[str, Any]] = []
+
+    HAT_KEYWORDS = {"hat", "cap", "helmet", "beanie", "beret", "hardhat", "hard hat"}
+
+    for i, label in enumerate(result.labels):
+        lower = label.lower()
+        if lower == "person":
+            persons.append({"box": result.boxes[i], "conf": result.confidences[i]})
+        elif any(kw in lower for kw in HAT_KEYWORDS):
+            hats.append({"box": result.boxes[i], "conf": result.confidences[i]})
+
+    new_boxes: List[List[float]] = []
+    new_labels: List[str] = []
+    new_confidences: List[float] = []
+
+    for person in persons:
+        ymin, xmin, ymax, xmax = person["box"]
+        person_height = ymax - ymin
+
+        # Head zone = top 30 % of the person bounding box (in 0-1000 scale)
+        head_zone_ymax = ymin + person_height * 0.30
+
+        has_hat = False
+        for hat in hats:
+            hymin, hxmin, hymax, hxmax = hat["box"]
+
+            # Intersection of hat box with head zone
+            inter_ymin = max(ymin, hymin)
+            inter_ymax = min(head_zone_ymax, hymax)
+            inter_xmin = max(xmin, hxmin)
+            inter_xmax = min(xmax, hxmax)
+
+            inter_h = inter_ymax - inter_ymin
+            inter_w = inter_xmax - inter_xmin
+
+            if inter_h > 0 and inter_w > 0:
+                hat_area = (hymax - hymin) * (hxmax - hxmin)
+                overlap_area = inter_h * inter_w
+                if hat_area > 0 and (overlap_area / hat_area) >= 0.30:
+                    has_hat = True
+                    break
+
+        new_boxes.append(person["box"])
+        new_labels.append("Hat" if has_hat else "No Hat")
+        new_confidences.append(person["conf"])
+
+    return DetectionResult(boxes=new_boxes, labels=new_labels, confidences=new_confidences)
