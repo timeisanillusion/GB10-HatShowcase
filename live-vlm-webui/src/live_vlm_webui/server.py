@@ -262,8 +262,23 @@ async def index(request):
     return web.Response(content_type="text/html", text=content)
 
 
+# Keywords that indicate a model supports vision/image input.
+# Used to filter the model list so text-only Ollama models are hidden.
+_VISION_KEYWORDS = (
+    "vl", "vlm", "vision", "llava", "moondream", "bakllava",
+    "minicpm-v", "minicpmv", "internvl", "cogvlm", "idefics",
+    "pixtral", "gemini", "gpt-4v", "gpt-4o", "claude-3",
+    "qwen-vl", "qwenvl", "phi-3-vision", "phi3-vision",
+)
+
+def _is_vision_model(model_id: str) -> bool:
+    """Return True if the model name suggests it supports image input."""
+    lower = model_id.lower()
+    return any(kw in lower for kw in _VISION_KEYWORDS)
+
+
 async def models(request):
-    """Return available models from the VLM API"""
+    """Return available models from the VLM API, filtered to vision-capable models only."""
     try:
         # Check if custom API base and key are provided in query params
         api_base = request.rel_url.query.get("api_base")
@@ -271,49 +286,40 @@ async def models(request):
 
         models_list = []
 
-        # Always add YOLO options for detection-only modes
-        models_list.append({"id": "YOLO", "name": "YOLO (Object Detection)", "current": False})
-        models_list.append({"id": "YOLO_HAT", "name": "YOLO (Hat Check)", "current": False})
+        # Always add YOLO options first — they are always available and always
+        # image-compatible (they process the video frame locally).
+        models_list.append({"id": "YOLO",     "name": "YOLO (Object Detection)", "current": False, "image_compatible": True})
+        models_list.append({"id": "YOLO_HAT", "name": "YOLO (Hat Check)",        "current": False, "image_compatible": True})
 
         if api_base:
-            # Query models from the provided API endpoint
             from openai import AsyncOpenAI
-
             temp_client = AsyncOpenAI(base_url=api_base, api_key=api_key if api_key else "EMPTY")
             models_response = await temp_client.models.list()
-            models_list.extend([
-                {"id": model.id, "name": model.id, "current": False}
-                for model in models_response.data
-            ])
+            for model in models_response.data:
+                if _is_vision_model(model.id):
+                    models_list.append({"id": model.id, "name": model.id, "current": False, "image_compatible": True})
         else:
-            # Use default session's VLM service (backwards compat when no api_base in query)
             default_svc = get_or_create_session("default")["vlm_service"]
             models_response = await default_svc.client.models.list()
-            models_list.extend([
-                {"id": model.id, "name": model.id, "current": model.id == default_svc.model}
-                for model in models_response.data
-            ])
-
-            # Mark default model as current
-            for m in models_list:
-                if m["id"] == default_svc.model:
-                    m["current"] = True
+            for model in models_response.data:
+                if _is_vision_model(model.id):
+                    models_list.append({
+                        "id": model.id,
+                        "name": model.id,
+                        "current": model.id == default_svc.model,
+                        "image_compatible": True,
+                    })
 
         return web.Response(
             content_type="application/json", text=json.dumps({"models": models_list})
         )
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
-        # Return current model as fallback (always include YOLO options)
+        # Fallback: YOLO options only
         models_list = [
-            {"id": "YOLO", "name": "YOLO (Object Detection)", "current": False},
-            {"id": "YOLO_HAT", "name": "YOLO (Hat Check)", "current": False},
+            {"id": "YOLO",     "name": "YOLO (Object Detection)", "current": False, "image_compatible": True},
+            {"id": "YOLO_HAT", "name": "YOLO (Hat Check)",        "current": False, "image_compatible": True},
         ]
-        if sessions.get("default"):
-            default_svc = sessions["default"]["vlm_service"]
-            models_list.append(
-                {"id": default_svc.model, "name": default_svc.model, "current": True}
-            )
         return web.Response(
             content_type="application/json", text=json.dumps({"models": models_list})
         )

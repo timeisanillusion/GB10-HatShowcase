@@ -3360,35 +3360,28 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
                 if (data.models && data.models.length > 0) {
                     modelSelect.innerHTML = '';
-                    let currentModel = null;
-                    let autoSelectedModel = null;
 
-                    data.models.forEach((model, index) => {
+                    data.models.forEach((model) => {
                         const option = document.createElement('option');
                         option.value = model.id;
-                        option.textContent = model.id;
-                        if (model.current) {
-                            option.selected = true;
-                            currentModel = model.id;
-                        }
+                        // Use the friendly display name from the server when available
+                        option.textContent = model.name || model.id;
                         modelSelect.appendChild(option);
                     });
 
-                    // If no current model, auto-select first model and apply
-                    if (!currentModel && data.models.length > 0) {
-                        autoSelectedModel = data.models[0].id;
-                        modelSelect.value = autoSelectedModel;
-                        currentModel = autoSelectedModel;
+                    // Always start on YOLO — it's the first entry the server returns
+                    // and is always the right default for this demo.
+                    modelSelect.value = 'YOLO';
+                    document.getElementById('modelName').textContent = 'YOLO';
 
-                        // Auto-apply the new model
-                        console.log(`Auto-selected model: ${autoSelectedModel}`);
-                        applyApiSettings({ showFeedback: false });
-                    }
+                    // Disable prompt/token fields for YOLO mode
+                    document.getElementById('promptPreset').disabled = true;
+                    document.getElementById('promptText').disabled = true;
+                    document.getElementById('maxTokens').disabled = true;
 
-                    // Update model name in VLM output header
-                    if (currentModel) {
-                        document.getElementById('modelName').textContent = currentModel;
-                    }
+                    // Tell the server the initial model selection
+                    console.log('Models loaded — defaulting to YOLO');
+                    applyApiSettings({ showFeedback: false });
                 } else {
                     modelSelect.innerHTML = '<option value="">No models available</option>';
                 }
