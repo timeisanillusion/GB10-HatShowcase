@@ -262,6 +262,34 @@ async def index(request):
     return web.Response(content_type="text/html", text=content)
 
 
+async def _unload_ollama_model(api_base: str, model_name: str) -> None:
+    """
+    Explicitly unload a model from Ollama so its memory is freed before
+    a larger model is loaded.
+
+    Ollama exposes this via its native /api/generate endpoint:
+    POST { "model": "<name>", "keep_alive": 0 } evicts the model immediately.
+
+    We derive the Ollama base URL from the OpenAI-compatible api_base by
+    stripping the trailing /v1 suffix (e.g. http://localhost:11434/v1
+    becomes http://localhost:11434).
+    """
+    try:
+        ollama_base = api_base.rstrip("/")
+        if ollama_base.endswith("/v1"):
+            ollama_base = ollama_base[:-3]
+        url = f"{ollama_base}/api/generate"
+        payload = {"model": model_name, "keep_alive": 0}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                logger.info(
+                    f"Unloaded '{model_name}' from Ollama (HTTP {resp.status})"
+                )
+    except Exception as e:
+        # Non-fatal — log and continue; the model switch will still proceed
+        logger.warning(f"Could not unload '{model_name}' from Ollama: {e}")
+
+
 # Keywords that indicate a model supports vision/image input.
 # Used to filter the model list so text-only Ollama models are hidden.
 _VISION_KEYWORDS = (
@@ -448,6 +476,37 @@ async def websocket_handler(request):
                             model_upper = new_model.upper()
                             is_yolo_mode = model_upper in ("YOLO", "YOLO_HAT")
                             is_hat_check_mode = model_upper == "YOLO_HAT"
+
+                            # ── Model unload before switch ────────────────────
+                            # If we're switching from one VLM to another, the old
+                            # model must be fully evicted from Ollama before the
+                            # new one can load.  Without this, Ollama tries to hold
+                            # both in memory simultaneously, runs out of resources,
+                            # and returns HTTP 500.
+                            old_model = svc.model
+                            switching_vlms = (
+                                not is_yolo_mode
+                                and old_model
+                                and old_model.upper() not in ("YOLO", "YOLO_HAT")
+                                and old_model != new_model
+                            )
+                            if switching_vlms:
+                                logger.info(
+                                    f"[{session_id}] Switching VLM: unloading '{old_model}' "
+                                    f"before loading '{new_model}'"
+                                )
+                                svc.is_model_switching = True
+                                svc.current_response = (
+                                    f"Unloading {old_model}… waiting for memory to free "
+                                    f"before loading {new_model}"
+                                )
+                                await _unload_ollama_model(svc.api_base, old_model)
+                                # Give Ollama a moment to release the memory pages
+                                await asyncio.sleep(3)
+                                svc.is_model_switching = False
+                                logger.info(
+                                    f"[{session_id}] '{old_model}' unloaded, proceeding to load '{new_model}'"
+                                )
 
                             svc.model = new_model
                             if api_base:

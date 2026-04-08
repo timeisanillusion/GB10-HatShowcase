@@ -64,6 +64,7 @@ class VLMService:
         self.client = AsyncOpenAI(base_url=api_base, api_key=api_key, timeout=self._client_timeout)
         self.current_response = "Initializing..."
         self.is_processing = False
+        self.is_model_switching = False  # True while old model is being unloaded
         self._processing_lock = asyncio.Lock()
         self._last_request_payload = None  # For debug: request body (image truncated)
         self._last_response_payload = None  # For debug: API response body
@@ -317,6 +318,13 @@ class VLMService:
             image: PIL Image to process
             prompt: Optional custom prompt (uses default if None)
         """
+        # Skip while the model is being switched — the old model is being
+        # unloaded from Ollama and we must not send any requests until the
+        # new model has had a chance to load into memory.
+        if self.is_model_switching:
+            logger.debug("Model switch in progress, skipping frame")
+            return
+
         # Non-blocking check if we're already processing
         if self._processing_lock.locked():
             logger.debug("VLM busy, skipping frame")
