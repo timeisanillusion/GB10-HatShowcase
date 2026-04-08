@@ -176,6 +176,51 @@ def get_hat_boxes(result: DetectionResult) -> List[Dict[str, Any]]:
     return hats
 
 
+def _iou(box1: List[float], box2: List[float]) -> float:
+    """Compute IoU between two [ymin, xmin, ymax, xmax] boxes."""
+    y1 = max(box1[0], box2[0])
+    x1 = max(box1[1], box2[1])
+    y2 = min(box1[2], box2[2])
+    x2 = min(box1[3], box2[3])
+    inter = max(0.0, y2 - y1) * max(0.0, x2 - x1)
+    area1 = max(0.0, box1[2] - box1[0]) * max(0.0, box1[3] - box1[1])
+    area2 = max(0.0, box2[2] - box2[0]) * max(0.0, box2[3] - box2[1])
+    union = area1 + area2 - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _nms_persons(persons: List[Dict[str, Any]], iou_threshold: float = 0.30) -> List[Dict[str, Any]]:
+    """
+    Non-maximum suppression for person detections.
+
+    YOLO-World with custom set_classes() sometimes emits two slightly offset
+    bounding boxes for the same physical person whose IoU falls just below the
+    model's built-in NMS threshold (0.45).  Applying a second, looser NMS pass
+    here (default threshold 0.30) collapses those duplicates before hat
+    association runs, preventing one person from receiving both a 'Hat' and a
+    'No Hat' label.
+
+    Boxes are sorted by confidence (highest first) so the best detection is
+    always kept when two boxes overlap.
+    """
+    if len(persons) <= 1:
+        return persons
+
+    persons = sorted(persons, key=lambda p: p["conf"], reverse=True)
+    suppressed: set = set()
+    kept: List[Dict[str, Any]] = []
+
+    for i, p1 in enumerate(persons):
+        if i in suppressed:
+            continue
+        kept.append(p1)
+        for j in range(i + 1, len(persons)):
+            if j not in suppressed and _iou(p1["box"], persons[j]["box"]) >= iou_threshold:
+                suppressed.add(j)
+
+    return kept
+
+
 def associate_hats_with_persons(result: DetectionResult) -> DetectionResult:
     """
     Post-process a YOLO-World DetectionResult (containing 'person' and 'hat' detections)
@@ -205,6 +250,10 @@ def associate_hats_with_persons(result: DetectionResult) -> DetectionResult:
             persons.append({"box": result.boxes[i], "conf": result.confidences[i]})
         elif any(kw in lower for kw in HAT_KEYWORDS):
             hats.append({"box": result.boxes[i], "conf": result.confidences[i]})
+
+    # Remove duplicate person detections that YOLO-World may produce when
+    # custom set_classes() is used (two slightly offset boxes for the same person).
+    persons = _nms_persons(persons)
 
     new_boxes: List[List[float]] = []
     new_labels: List[str] = []
