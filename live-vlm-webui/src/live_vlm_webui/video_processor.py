@@ -51,11 +51,18 @@ class VideoProcessorTrack(VideoStreamTrack):
     # Max allowed latency before dropping frames (in seconds, 0 = disabled)
     max_frame_latency = 0.0
 
-    def __init__(self, track: VideoStreamTrack, vlm_service: VLMService, text_callback=None, detection_backend: Optional[DetectionBackend] = None, hat_check_mode: bool = False):
+    def __init__(self, track: VideoStreamTrack, vlm_service: VLMService = None, text_callback=None, detection_backend: Optional[DetectionBackend] = None, hat_check_mode: bool = False, vlm_services=None):
         super().__init__()
         self.track = track
-        self.vlm_service = vlm_service
         self.text_callback = text_callback  # Callback to send text updates
+        # Support both single vlm_service (backward compat) and a list.
+        # Internally we always store a list; the vlm_service property exposes the first entry.
+        if vlm_services is not None:
+            self._vlm_services: list = list(vlm_services)
+        elif vlm_service is not None:
+            self._vlm_services = [vlm_service]
+        else:
+            self._vlm_services = []
         # Store detection_backend as a mutable reference (dict) so it can be updated dynamically
         self._detection_backend_ref = {"backend": detection_backend}
         self.last_frame: Optional[np.ndarray] = None
@@ -68,6 +75,47 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.last_detection_time = 0  # Track when detection was last run
         # Hat check mode: post-process YOLO-World results to associate hats with persons
         self.hat_check_mode: bool = hat_check_mode
+
+    # ── VLM service accessors ────────────────────────────────────────────────
+
+    @property
+    def vlm_service(self) -> Optional[VLMService]:
+        """Return the first (primary) VLM service, or None if the list is empty."""
+        return self._vlm_services[0] if self._vlm_services else None
+
+    @vlm_service.setter
+    def vlm_service(self, value: Optional[VLMService]) -> None:
+        if value is None:
+            self._vlm_services = []
+        elif self._vlm_services:
+            self._vlm_services[0] = value
+        else:
+            self._vlm_services = [value]
+
+    @property
+    def vlm_services(self) -> list:
+        """Return all active VLM services."""
+        return self._vlm_services
+
+    @vlm_services.setter
+    def vlm_services(self, value: list) -> None:
+        """Replace the active VLM service list (used for live model switching)."""
+        self._vlm_services = list(value) if value else []
+
+    def _get_vlm_states(self) -> list:
+        """Return current response state for all active VLM services."""
+        states = []
+        for svc in self._vlm_services:
+            text, is_processing = svc.get_current_response()
+            states.append({
+                "model": svc.model,
+                "text": text,
+                "is_processing": is_processing,
+                "metrics": svc.get_metrics(),
+            })
+        return states
+
+    # ── Detection backend accessor ───────────────────────────────────────────
 
     @property
     def detection_backend(self) -> Optional[DetectionBackend]:
@@ -190,13 +238,14 @@ class VideoProcessorTrack(VideoStreamTrack):
                     else:
                         detection_task = None
 
-                    # Skip VLM processing if YOLO detection is active
-                    if detection_task is None:
-                        # Fire and forget - don't wait for result
-                        asyncio.create_task(self.vlm_service.process_frame(pil_img))
-                        logger.info(f"Frame {self.frame_count}: Sending to VLM (interval={interval})")
-                    else:
-                        logger.info(f"Frame {self.frame_count}: YOLO detection active, skipping VLM processing")
+                    # Send to VLM services (all active ones, fire-and-forget)
+                    # Skip when YOLO detection is active (they are mutually exclusive per frame)
+                    if detection_task is None and self._vlm_services:
+                        for svc in self._vlm_services:
+                            asyncio.create_task(svc.process_frame(pil_img))
+                        logger.info(f"Frame {self.frame_count}: Sending to {len(self._vlm_services)} VLM(s) (interval={interval})")
+                    elif detection_task is not None:
+                        logger.debug(f"Frame {self.frame_count}: YOLO active, skipping VLM")
 
                     # Update detection result if YOLO is available
                     if detection_task:
@@ -208,26 +257,17 @@ class VideoProcessorTrack(VideoStreamTrack):
                         except Exception as e:
                             logger.warning(f"YOLO detection failed: {e}")
 
-            # Get current response (may be old if VLM is still processing)
-            response, is_processing = self.vlm_service.get_current_response()
-
-            # Get metrics
-            metrics = self.vlm_service.get_metrics()
-
-            # Send text update via callback (for WebSocket)
+            # Build callback payload and send every frame
             if self.text_callback:
-                # Skip sending response if YOLO detection is active and no VLM processing
-                # Only send detection result if it's recent
-                if self.detection_backend is not None and self.last_detection_result is not None and time.time() - self.last_detection_time < 2.0:
-                    # Send detection result without VLM response
-                    self.text_callback("", metrics, self.last_detection_result)
-                elif not is_processing:
-                    # Only send response if VLM is not processing
-                    self.text_callback(response, metrics)
-            else:
-                # Fallback: send detection result if available
-                if self.detection_backend is not None and self.last_detection_result is not None:
-                    self.text_callback("", {}, self.last_detection_result)
+                vlm_states = self._get_vlm_states()
+                det_result = (
+                    self.last_detection_result
+                    if (self.detection_backend is not None
+                        and self.last_detection_result is not None
+                        and time.time() - self.last_detection_time < 2.0)
+                    else None
+                )
+                self.text_callback(vlm_states, det_result)
 
             # Return original frame directly - zero-copy passthrough!
             # This avoids expensive BGR→YUV conversion

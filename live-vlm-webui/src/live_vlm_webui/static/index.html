@@ -1765,7 +1765,6 @@ limitations under the License.
         #processEvery,
         #apiBaseUrl,
         #apiKey,
-        #modelSelect,
         #cameraSelect,
         #rtspUrl {
             transition: all 0.3s ease;
@@ -1778,7 +1777,6 @@ limitations under the License.
         #cameraSelect:focus,
         #apiBaseUrl:focus,
         #apiKey:focus,
-        #modelSelect:focus,
         #rtspUrl:focus {
             border-color: rgba(200, 200, 200, 0.6) !important;
             box-shadow: 0 0 0 2px rgba(200, 200, 200, 0.15),
@@ -1803,8 +1801,7 @@ limitations under the License.
         }
 
         body.colorful-focus #apiBaseUrl:focus,
-        body.colorful-focus #apiKey:focus,
-        body.colorful-focus #modelSelect:focus {
+        body.colorful-focus #apiKey:focus {
             border-color: rgb(34, 211, 238) !important;
             box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.25),
                         0 0 12px rgba(34, 211, 238, 0.3) !important;
@@ -1831,10 +1828,120 @@ limitations under the License.
         #processEvery.applied,
         #apiBaseUrl.applied,
         #apiKey.applied,
-        #modelSelect.applied,
         #cameraSelect.applied,
         #rtspUrl.applied {
             animation: settingApplied 0.6s ease-out;
+        }
+
+        /* ── Model Selector (checkbox panel) ─────────────────────────── */
+        .model-selector-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .model-group-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-top: 4px;
+            margin-bottom: 2px;
+        }
+        .model-checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            user-select: none;
+        }
+        .model-checkbox-row:hover {
+            border-color: var(--accent-color);
+            background: var(--card-hover);
+        }
+        .model-checkbox-row.checked {
+            border-color: var(--accent-color);
+            background: rgba(118, 185, 0, 0.08);
+        }
+        .model-checkbox-row.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .model-checkbox-row input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            accent-color: var(--accent-color);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .model-checkbox-label {
+            flex: 1;
+            font-size: 13px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+        .model-checkbox-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+        }
+        .badge-yolo   { background: rgba(59,130,246,0.2);  color: #60a5fa; }
+        .badge-llm    { background: rgba(118,185,0,0.2);   color: var(--accent-color); }
+        .badge-active { background: var(--accent-color);   color: #000; }
+
+        /* ── Dual LLM output panels ───────────────────────────────────── */
+        .llm-output-container {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .llm-panel {
+            flex: 1;
+            min-width: 260px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .llm-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .llm-panel-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .llm-panel-metrics {
+            font-size: 11px;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .llm-panel-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            min-height: 48px;
+        }
+        .llm-panel-text.loading {
+            color: var(--text-muted);
+            font-style: italic;
         }
 
 
@@ -1882,7 +1989,7 @@ limitations under the License.
             }
 
             /* VLM Output card in right column */
-            .result-card:not(#systemStatsCard) {
+            #vlmOutputCard {
                 grid-column: 2;
                 grid-row: 1;
                 margin-bottom: 0;
@@ -2254,11 +2361,23 @@ limitations under the License.
                                 </button>
                             </div>
                         </div>
-                        <select id="modelSelect">
-                            <option value="YOLO" selected>YOLO (Object Detection)</option>
-                            <option value="YOLO_HAT">YOLO (Hat Check)</option>
-                            <option value="">Loading models...</option>
-                        </select>
+                        <div class="model-selector-panel" id="modelSelectorPanel">
+                            <div class="model-group-label">Visual Detection <span style="color:var(--text-muted);font-weight:400">(max 1)</span></div>
+                            <div id="yoloCheckboxes">
+                                <label class="model-checkbox-row checked" data-model="YOLO">
+                                    <input type="checkbox" name="modelCheckbox" value="YOLO" checked>
+                                    <span class="model-checkbox-badge badge-yolo">YOLO</span>
+                                    <span class="model-checkbox-label">Object Detection</span>
+                                </label>
+                                <label class="model-checkbox-row" data-model="YOLO_HAT">
+                                    <input type="checkbox" name="modelCheckbox" value="YOLO_HAT">
+                                    <span class="model-checkbox-badge badge-yolo">YOLO</span>
+                                    <span class="model-checkbox-label">Hat Check</span>
+                                </label>
+                            </div>
+                            <div class="model-group-label" style="margin-top:8px">Language Models <span id="llmCountLabel" style="color:var(--text-muted);font-weight:400">(max 2, 0 selected)</span></div>
+                            <div id="llmCheckboxes"><span style="color:var(--text-muted);font-size:12px;padding:4px 0;display:block;">Loading models…</span></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2431,59 +2550,20 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 <div class="video-overlay" id="videoOverlay"></div>
             </div>
 
-            <!-- Generation Result -->
-            <div class="result-card">
-                <div class="result-header">
-                    <div class="result-header-left">
-                        <div class="result-title">
-                            <i data-lucide="bot"></i> VLM Output Info
-                        </div>
-                        <div class="result-subtitle">
-                            Model: <span id="modelName" style="font-weight: 600; color: var(--accent-color);">--</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 16px;">
-                        <div class="metrics-inline" id="metricsInline" style="display: none;">
-                            <div class="metric-item">
-                                <span>Latency:</span>
-                                <span class="metric-value" id="latencyValue">--</span>
-                                <span>ms</span>
-                            </div>
-                            <div class="metric-item">
-                                <span>Avg:</span>
-                                <span class="metric-value" id="avgLatencyValue">--</span>
-                                <span>ms</span>
-                            </div>
-                            <div class="metric-item">
-                                <span>Count:</span>
-                                <span class="metric-value" id="countValue">--</span>
-                            </div>
-                        </div>
-                    </div>
-            </div>
-
-                <div class="result-prompt" id="currentPrompt"></div>
-                <div id="requestPayloadDebug" class="debug-payload-block" style="display: none; margin-top: 8px;">
-                    <details style="margin: 0;">
-                        <summary style="cursor: pointer; font-size: 12px; color: var(--text-secondary);">Request payload (debug)</summary>
-                        <pre id="requestPayloadContent" style="margin: 8px 0 0; padding: 10px; background: var(--bg-secondary); border-radius: 8px; font-size: 11px; overflow: auto; max-height: 240px; white-space: pre-wrap; word-break: break-all;"></pre>
-                    </details>
+            <!-- VLM / YOLO Output -->
+            <div class="result-card" id="vlmOutputCard">
+                <!-- Shared prompt display -->
+                <div class="result-prompt" id="currentPrompt" style="margin-bottom: 8px;"></div>
+                <!-- YOLO status banner (shown only when YOLO is active without LLMs) -->
+                <div id="yoloStatusBanner" style="display:none; padding:10px 0; color:var(--text-muted); font-size:13px;">
+                    <i data-lucide="target" style="width:14px;height:14px;vertical-align:-2px;"></i>
+                    <span id="yoloStatusText">YOLO Object Detection active — detections shown on video</span>
                 </div>
-                <div class="result-text" id="resultText">
-                    <button class="markdown-toggle-embedded" id="markdownToggle" title="Toggle Markdown Rendering">
-                        <span id="markdownIcon"><i data-lucide="code"></i></span>
-                        <span id="markdownText">Markdown</span>
-                    </button>
-                    <button class="copy-button-embedded" id="copyButton" title="Copy to clipboard">
-                        <i data-lucide="copy"></i>
-                    </button>
-                    <div class="result-text-content" id="resultTextContent"></div>
-                </div>
-                <div id="responsePayloadDebug" class="debug-payload-block" style="display: none; margin-top: 8px;">
-                    <details style="margin: 0;">
-                        <summary style="cursor: pointer; font-size: 12px; color: var(--text-secondary);">Response payload (debug)</summary>
-                        <pre id="responsePayloadContent" style="margin: 8px 0 0; padding: 10px; background: var(--bg-secondary); border-radius: 8px; font-size: 11px; overflow: auto; max-height: 240px; white-space: pre-wrap; word-break: break-all;"></pre>
-                    </details>
+                <!-- Dynamic LLM output panels -->
+                <div class="llm-output-container" id="llmOutputContainer">
+                    <div id="llmOutputPlaceholder" style="color:var(--text-muted);font-size:13px;padding:8px 0;">
+                        Select models in the sidebar to begin analysis
+                    </div>
                 </div>
             </div>
 
@@ -2561,21 +2641,13 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const connectionStatus = document.getElementById('connectionStatus');
-        const resultText = document.getElementById('resultText');
         const currentPrompt = document.getElementById('currentPrompt');
-        const metricsInline = document.getElementById('metricsInline');
-        const markdownToggle = document.getElementById('markdownToggle');
-        const markdownIcon = document.getElementById('markdownIcon');
-        const markdownText = document.getElementById('markdownText');
-        const copyButton = document.getElementById('copyButton');
-        const latencyValue = document.getElementById('latencyValue');
-        const avgLatencyValue = document.getElementById('avgLatencyValue');
-        const countValue = document.getElementById('countValue');
         const promptPreset = document.getElementById('promptPreset');
         const promptText = document.getElementById('promptText');
         const maxTokens = document.getElementById('maxTokens');
-        const modelSelect = document.getElementById('modelSelect');
         const refreshModelsBtn = document.getElementById('refreshModelsBtn');
+        // Track which models are currently selected (set of model id strings)
+        let selectedModels = new Set(['YOLO']); // default to YOLO on load
         const processEvery = document.getElementById('processEvery');
         const maxLatency = document.getElementById('maxLatency');
         const mirrorBtn = document.getElementById('mirrorBtn');
@@ -2864,125 +2936,203 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             }
         }
 
-        // Update markdown toggle UI
-        function updateMarkdownToggleUI() {
-            const contentDiv = document.getElementById('resultTextContent');
-            if (markdownEnabled) {
-                markdownIcon.innerHTML = '<i data-lucide="code"></i>';
-                markdownText.textContent = 'Markdown';
-                if (contentDiv) {
-                    contentDiv.classList.add('markdown-rendered');
-                } else {
-                    resultText.classList.add('markdown-rendered');
-                }
-            } else {
-                markdownIcon.innerHTML = '<i data-lucide="file-text"></i>';
-                markdownText.textContent = 'Plain Text';
-                if (contentDiv) {
-                    contentDiv.classList.remove('markdown-rendered');
-                } else {
-                    resultText.classList.remove('markdown-rendered');
-                }
-            }
-            lucide.createIcons();
+        // ── Per-panel LLM rendering helpers ─────────────────────────────────
+
+        /** Return a CSS-safe ID suffix for a model name */
+        function modelSafeId(model) {
+            return model.replace(/[^a-zA-Z0-9_-]/g, '_');
         }
 
-        // Markdown toggle handler
-        markdownToggle.addEventListener('click', () => {
-            markdownEnabled = !markdownEnabled;
-            localStorage.setItem('markdownEnabled', markdownEnabled.toString());
-            updateMarkdownToggleUI();
-
-            // Re-render current text with new mode
-            if (lastText) {
-                updateResultText(lastText);
-            }
-        });
-
-        // Initialize markdown toggle state
-        updateMarkdownToggleUI();
-
-        // Copy to clipboard functionality
-        copyButton.addEventListener('click', async () => {
-            const contentDiv = document.getElementById('resultTextContent');
-            let textToCopy = '';
-
-            if (contentDiv) {
-                // If markdown is enabled, copy the raw text (not HTML)
-                if (markdownEnabled) {
-                    // Get the raw text by reading from lastText or extracting from content
-                    textToCopy = lastText || contentDiv.innerText || contentDiv.textContent;
-                } else {
-                    textToCopy = contentDiv.textContent || contentDiv.innerText;
-                }
-            } else {
-                textToCopy = resultText.textContent || resultText.innerText;
-            }
-
-            if (!textToCopy || textToCopy.trim() === '') {
-                return; // Nothing to copy
-            }
-
+        /** Copy text to clipboard with visual feedback on a button element */
+        async function copyTextToClipboard(text, btn) {
+            if (!text || !text.trim()) return;
             try {
-                await navigator.clipboard.writeText(textToCopy);
-
-                // Visual feedback
-                const originalHTML = copyButton.innerHTML;
-
-                copyButton.classList.add('copied');
-                copyButton.innerHTML = '<i data-lucide="check"></i>';
+                await navigator.clipboard.writeText(text);
+            } catch {
+                const ta = document.createElement('textarea');
+                ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+                document.body.appendChild(ta); ta.select();
+                try { document.execCommand('copy'); } catch {}
+                document.body.removeChild(ta);
+            }
+            if (btn) {
+                const orig = btn.innerHTML;
+                btn.classList.add('copied');
+                btn.innerHTML = '<i data-lucide="check"></i>';
                 lucide.createIcons();
-
-                // Reset after 0.8 seconds
-                setTimeout(() => {
-                    copyButton.classList.remove('copied');
-                    copyButton.innerHTML = originalHTML;
-                    lucide.createIcons();
-                }, 800);
-            } catch (err) {
-                console.error('Failed to copy text:', err);
-                // Fallback for older browsers
-                const textArea = document.createElement('textarea');
-                textArea.value = textToCopy;
-                textArea.style.position = 'fixed';
-                textArea.style.opacity = '0';
-                document.body.appendChild(textArea);
-                textArea.select();
-                try {
-                    document.execCommand('copy');
-                    copyButton.classList.add('copied');
-                    setTimeout(() => copyButton.classList.remove('copied'), 500);
-                } catch (e) {
-                    console.error('Fallback copy failed:', e);
-                }
-                document.body.removeChild(textArea);
+                setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = orig; lucide.createIcons(); }, 800);
             }
-        });
+        }
 
-        // Function to update result text (handles both markdown and plain text)
-        function updateResultText(text) {
-            const contentDiv = document.getElementById('resultTextContent');
-            if (!contentDiv) {
-                // Fallback if content div doesn't exist yet
-                if (markdownEnabled) {
-                    resultText.innerHTML = renderMarkdown(text);
-                } else {
-                    resultText.textContent = text;
-                }
-                return;
-            }
-            // Update only the content div, preserving the button
+        /** Update text content of one LLM panel */
+        function updateLLMPanelText(safeId, text) {
+            const contentDiv = document.getElementById('llmContent-' + safeId);
+            if (!contentDiv) return;
             if (markdownEnabled) {
                 contentDiv.innerHTML = renderMarkdown(text);
+                contentDiv.classList.add('markdown-rendered');
             } else {
                 contentDiv.textContent = text;
+                contentDiv.classList.remove('markdown-rendered');
+            }
+            const videoCard = document.getElementById('videoCard');
+            if (videoCard && videoCard.classList.contains('fullscreen')) syncVlmToFullscreen();
+        }
+
+        /**
+         * Create / refresh the LLM output panels in #llmOutputContainer.
+         * Pass the current selectedModels set. LLM models = those not YOLO/YOLO_HAT.
+         */
+        function renderLLMPanels(modelSet) {
+            const container = document.getElementById('llmOutputContainer');
+            const placeholder = document.getElementById('llmOutputPlaceholder');
+            const yoloBanner = document.getElementById('yoloStatusBanner');
+            const yoloStatusText = document.getElementById('yoloStatusText');
+
+            const llmModels = [...modelSet].filter(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase()));
+            const hasYolo = [...modelSet].some(m => ['YOLO','YOLO_HAT'].includes(m.toUpperCase()));
+            const isHatYolo = [...modelSet].some(m => m.toUpperCase() === 'YOLO_HAT');
+
+            // Show/hide YOLO banner
+            if (hasYolo && llmModels.length === 0) {
+                yoloBanner.style.display = 'block';
+                yoloStatusText.textContent = isHatYolo
+                    ? 'YOLO Hat Check active — bounding boxes shown on video'
+                    : 'YOLO Object Detection active — bounding boxes shown on video';
+            } else {
+                yoloBanner.style.display = 'none';
             }
 
-            // Auto-sync to fullscreen overlay if in fullscreen mode
-            const videoCard = document.getElementById('videoCard');
-            if (videoCard && videoCard.classList.contains('fullscreen')) {
-                syncVlmToFullscreen();
-            }
+            // Collect existing panels
+            const existing = new Set([...container.querySelectorAll('.llm-panel')].map(p => p.dataset.model));
+
+            // Remove panels for deselected models
+            container.querySelectorAll('.llm-panel').forEach(p => {
+                if (!llmModels.includes(p.dataset.model)) p.remove();
+            });
+
+            // Add panels for newly selected models (preserve order)
+            llmModels.forEach(model => {
+                if (existing.has(model)) return; // already present
+                const safeId = modelSafeId(model);
+                const panel = document.createElement('div');
+                panel.className = 'llm-panel';
+                panel.dataset.model = model;
+                panel.id = 'llmPanel-' + safeId;
+                panel.innerHTML = `
+                    <div class="llm-panel-header">
+                        <span class="llm-panel-title" title="${model}">${model}</span>
+                        <span class="llm-panel-metrics" id="llmMetrics-${safeId}"></span>
+                        <div style="display:flex;gap:6px;flex-shrink:0;">
+                            <button class="markdown-toggle-embedded" id="llmMdBtn-${safeId}" title="Toggle Markdown">
+                                <i data-lucide="code"></i><span>Markdown</span>
+                            </button>
+                            <button class="copy-button-embedded" id="llmCopyBtn-${safeId}" title="Copy">
+                                <i data-lucide="copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="llm-panel-text" id="llmText-${safeId}">
+                        <div class="result-text-content" id="llmContent-${safeId}"></div>
+                    </div>
+                    <div id="llmReqDebug-${safeId}" class="debug-payload-block" style="display:none;margin-top:8px;">
+                        <details style="margin:0;"><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);">Request payload (debug)</summary>
+                        <pre id="llmReqPre-${safeId}" style="margin:8px 0 0;padding:10px;background:var(--bg-secondary);border-radius:8px;font-size:11px;overflow:auto;max-height:240px;white-space:pre-wrap;word-break:break-all;"></pre></details>
+                    </div>
+                    <div id="llmRespDebug-${safeId}" class="debug-payload-block" style="display:none;margin-top:8px;">
+                        <details style="margin:0;"><summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);">Response payload (debug)</summary>
+                        <pre id="llmRespPre-${safeId}" style="margin:8px 0 0;padding:10px;background:var(--bg-secondary);border-radius:8px;font-size:11px;overflow:auto;max-height:240px;white-space:pre-wrap;word-break:break-all;"></pre></details>
+                    </div>`;
+                container.appendChild(panel);
+                lucide.createIcons({ nodes: [panel] });
+
+                // Markdown toggle
+                document.getElementById('llmMdBtn-' + safeId).addEventListener('click', () => {
+                    markdownEnabled = !markdownEnabled;
+                    localStorage.setItem('markdownEnabled', markdownEnabled.toString());
+                    // Re-render all panels
+                    container.querySelectorAll('.llm-panel').forEach(p => {
+                        const sid = modelSafeId(p.dataset.model);
+                        const raw = p.dataset.lastText || '';
+                        if (raw) updateLLMPanelText(sid, raw);
+                        const mdBtn = document.getElementById('llmMdBtn-' + sid);
+                        if (mdBtn) {
+                            mdBtn.innerHTML = markdownEnabled
+                                ? '<i data-lucide="code"></i><span>Markdown</span>'
+                                : '<i data-lucide="file-text"></i><span>Plain Text</span>';
+                            lucide.createIcons({ nodes: [mdBtn] });
+                        }
+                    });
+                });
+
+                // Copy button
+                document.getElementById('llmCopyBtn-' + safeId).addEventListener('click', () => {
+                    const raw = panel.dataset.lastText || '';
+                    copyTextToClipboard(raw, document.getElementById('llmCopyBtn-' + safeId));
+                });
+            });
+
+            // Show/hide placeholder
+            const hasPanel = container.querySelectorAll('.llm-panel').length > 0;
+            if (placeholder) placeholder.style.display = (hasPanel || hasYolo) ? 'none' : 'block';
+        }
+
+        /**
+         * Update LLM panels from a `vlm_response` WebSocket message.
+         * `responses` is an array of {model, text, is_processing, metrics}.
+         * `debugData` is {request_payloads, response_payloads} (optional).
+         */
+        function updateLLMPanels(responses, debugData) {
+            const showReqDebug = document.getElementById('debugShowRequestPayload')?.checked;
+            const showRespDebug = document.getElementById('debugShowResponsePayload')?.checked;
+
+            responses.forEach(state => {
+                const safeId = modelSafeId(state.model);
+                const textDiv = document.getElementById('llmText-' + safeId);
+                const panel = document.getElementById('llmPanel-' + safeId);
+                if (!textDiv || !panel) return;
+
+                const text = state.text || '';
+                panel.dataset.lastText = text;
+
+                // Apply loading style
+                if (state.is_processing) {
+                    textDiv.classList.add('loading');
+                } else {
+                    textDiv.classList.remove('loading');
+                }
+
+                updateLLMPanelText(safeId, text);
+
+                // Update overlay with the first model's text
+                if (responses.indexOf(state) === 0) {
+                    videoOverlay.textContent = text;
+                }
+
+                // Update metrics
+                const metricsEl = document.getElementById('llmMetrics-' + safeId);
+                if (metricsEl && state.metrics) {
+                    const lat = Math.round(state.metrics.last_latency_ms || 0);
+                    const avg = Math.round(state.metrics.avg_latency_ms || 0);
+                    metricsEl.textContent = lat > 0 ? `${lat}ms (avg ${avg}ms)` : '';
+                }
+
+                // Debug payloads
+                if (debugData) {
+                    const reqPre = document.getElementById('llmReqPre-' + safeId);
+                    const reqBlock = document.getElementById('llmReqDebug-' + safeId);
+                    if (reqPre && reqBlock && showReqDebug && debugData.request_payloads?.[state.model]) {
+                        reqBlock.style.display = 'block';
+                        reqPre.textContent = JSON.stringify(debugData.request_payloads[state.model], null, 2);
+                    }
+                    const respPre = document.getElementById('llmRespPre-' + safeId);
+                    const respBlock = document.getElementById('llmRespDebug-' + safeId);
+                    if (respPre && respBlock && showRespDebug && debugData.response_payloads?.[state.model]) {
+                        respBlock.style.display = 'block';
+                        respPre.textContent = JSON.stringify(debugData.response_payloads[state.model], null, 2);
+                    }
+                }
+            });
         }
 
         // Enumerate cameras on page load
@@ -3113,15 +3263,15 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         // Apply overlay position
         function applyOverlayPosition(position) {
             videoOverlay.classList.remove('show', 'top', 'bottom');
-            const resultText = document.getElementById('resultText');
+            const llmContainer = document.getElementById('llmOutputContainer');
 
             if (position !== 'none') {
-                // Overlay enabled - show on video, hide response balloon (keep prompt visible)
+                // Overlay enabled - show on video, hide LLM panels
                 videoOverlay.classList.add('show', position);
-                resultText.style.display = 'none';
+                if (llmContainer) llmContainer.style.display = 'none';
             } else {
-                // Overlay disabled - hide from video, show response balloon
-                resultText.style.display = 'block';
+                // Overlay disabled - show LLM panels
+                if (llmContainer) llmContainer.style.display = '';
             }
         }
         applyOverlayPosition(settings.overlayPosition);
@@ -3242,19 +3392,21 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         // Sync VLM output to fullscreen overlay
         function syncVlmToFullscreen() {
-            const mainVlmContent = document.getElementById('resultTextContent');
             const fullscreenVlmContent = document.getElementById('fullscreenVlmContent');
             const fullscreenVlmMetrics = document.getElementById('fullscreenVlmMetrics');
 
-            if (mainVlmContent && fullscreenVlmContent) {
-                fullscreenVlmContent.innerHTML = mainVlmContent.innerHTML || 'Ready';
-            }
-
-            // Add metrics if available
-            const latency = document.getElementById('latencyValue')?.textContent;
-            const count = document.getElementById('countValue')?.textContent;
-            if (latency && count) {
-                fullscreenVlmMetrics.innerHTML = `<span>Latency: ${latency}ms</span><span>Count: ${count}</span>`;
+            // Collect text from all active LLM panels
+            const panels = document.querySelectorAll('.llm-panel');
+            if (panels.length > 0 && fullscreenVlmContent) {
+                // Show first panel's content in fullscreen (space is limited)
+                const firstContent = panels[0].querySelector('[id^="llmContent-"]');
+                fullscreenVlmContent.innerHTML = firstContent ? (firstContent.innerHTML || 'Ready') : 'Ready';
+                // Show metrics from first panel
+                const firstMetrics = panels[0].querySelector('[id^="llmMetrics-"]');
+                if (firstMetrics && fullscreenVlmMetrics) {
+                    fullscreenVlmMetrics.innerHTML = firstMetrics.textContent
+                        ? `<span>${firstMetrics.textContent}</span>` : '';
+                }
             }
         }
 
@@ -3337,117 +3489,132 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             }
         }
 
-        // Fetch Models
+        // ── Checkbox model selector logic ────────────────────────────────────
+
+        /** Return true if any of the selected models is an LLM (non-YOLO) */
+        function hasLLMSelected() {
+            return [...selectedModels].some(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase()));
+        }
+
+        /** Update the LLM count label */
+        function updateLLMCountLabel() {
+            const count = [...selectedModels].filter(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase())).length;
+            const el = document.getElementById('llmCountLabel');
+            if (el) el.textContent = `(max 2, ${count} selected)`;
+        }
+
+        /** Enable/disable prompt fields based on whether any LLM is selected */
+        function updatePromptFieldState() {
+            const llmActive = hasLLMSelected();
+            document.getElementById('promptPreset').disabled = !llmActive;
+            document.getElementById('promptText').disabled = !llmActive;
+            document.getElementById('maxTokens').disabled = !llmActive;
+        }
+
+        /** Send update_models to server with current selection + API settings */
+        function sendModelsToServer() {
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
+            websocket.send(JSON.stringify({
+                type: 'update_models',
+                models: [...selectedModels],
+                api_base: apiBaseUrl.value.trim(),
+                api_key: apiKey.value.trim()
+            }));
+        }
+
+        /** Called when any checkbox changes */
+        function onModelCheckboxChange(checkbox) {
+            const val = checkbox.value;
+            const isYolo = ['YOLO','YOLO_HAT'].includes(val.toUpperCase());
+
+            if (checkbox.checked) {
+                if (isYolo) {
+                    // Deselect any other YOLO
+                    document.querySelectorAll('#yoloCheckboxes input[type="checkbox"]').forEach(cb => {
+                        if (cb !== checkbox) { cb.checked = false; cb.closest('.model-checkbox-row').classList.remove('checked'); selectedModels.delete(cb.value); }
+                    });
+                } else {
+                    // Max 2 LLMs
+                    const llmSelected = [...selectedModels].filter(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase()));
+                    if (llmSelected.length >= 2) {
+                        checkbox.checked = false;
+                        return; // silently reject 3rd LLM
+                    }
+                }
+                selectedModels.add(val);
+                checkbox.closest('.model-checkbox-row').classList.add('checked');
+            } else {
+                selectedModels.delete(val);
+                checkbox.closest('.model-checkbox-row').classList.remove('checked');
+            }
+
+            updateLLMCountLabel();
+            updatePromptFieldState();
+            renderLLMPanels(selectedModels);
+            sendModelsToServer();
+        }
+
+        // Wire up the static YOLO checkboxes
+        document.querySelectorAll('#yoloCheckboxes input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => onModelCheckboxChange(cb));
+        });
+
+        // Fetch Models — populates the LLM checkbox list
         async function fetchModels() {
+            const llmBox = document.getElementById('llmCheckboxes');
+            llmBox.innerHTML = '<span style="color:var(--text-muted);font-size:12px;padding:4px 0;display:block;">Loading models…</span>';
+
             try {
-                modelSelect.innerHTML = '<option value="">Loading models...</option>';
-
-                // Get current API settings from UI
-                const currentApiBase = apiBaseUrl.value.trim();
-                const currentApiKey = apiKey.value.trim();
-
-                // Build query params
                 const params = new URLSearchParams();
-                if (currentApiBase) {
-                    params.append('api_base', currentApiBase);
-                }
-                if (currentApiKey) {
-                    params.append('api_key', currentApiKey);
-                }
+                const base = apiBaseUrl.value.trim();
+                const key = apiKey.value.trim();
+                if (base) params.append('api_base', base);
+                if (key) params.append('api_key', key);
 
                 const url = `/models${params.toString() ? '?' + params.toString() : ''}`;
-                const response = await fetch(url);
-                const data = await response.json();
+                const resp = await fetch(url);
+                const data = await resp.json();
 
-                if (data.models && data.models.length > 0) {
-                    modelSelect.innerHTML = '';
+                // Filter out YOLO entries (already shown statically above)
+                const llmModels = (data.models || []).filter(m => !['YOLO','YOLO_HAT'].includes((m.id || '').toUpperCase()));
 
-                    data.models.forEach((model) => {
-                        const option = document.createElement('option');
-                        option.value = model.id;
-                        // Use the friendly display name from the server when available
-                        option.textContent = model.name || model.id;
-                        modelSelect.appendChild(option);
-                    });
-
-                    // Always start on YOLO — it's the first entry the server returns
-                    // and is always the right default for this demo.
-                    modelSelect.value = 'YOLO';
-                    document.getElementById('modelName').textContent = 'YOLO';
-
-                    // Disable prompt/token fields for YOLO mode
-                    document.getElementById('promptPreset').disabled = true;
-                    document.getElementById('promptText').disabled = true;
-                    document.getElementById('maxTokens').disabled = true;
-
-                    // Mark the dropdown as initialised so server_config messages
-                    // arriving late cannot override our YOLO default.
-                    modelDropdownInitialized = true;
-
-                    // Tell the server the initial model selection
-                    console.log('Models loaded — defaulting to YOLO');
-                    applyApiSettings({ showFeedback: false });
+                llmBox.innerHTML = '';
+                if (llmModels.length === 0) {
+                    llmBox.innerHTML = '<span style="color:var(--text-muted);font-size:12px;padding:4px 0;display:block;">No LLM models found</span>';
                 } else {
-                    modelSelect.innerHTML = '<option value="">No models available</option>';
+                    llmModels.forEach(model => {
+                        const id = model.id;
+                        const label = document.createElement('label');
+                        label.className = 'model-checkbox-row';
+                        label.dataset.model = id;
+                        const isChecked = selectedModels.has(id);
+                        if (isChecked) label.classList.add('checked');
+                        label.innerHTML = `
+                            <input type="checkbox" name="modelCheckbox" value="${id}" ${isChecked ? 'checked' : ''}>
+                            <span class="model-checkbox-badge badge-llm">LLM</span>
+                            <span class="model-checkbox-label" title="${id}">${model.name || id}</span>`;
+                        const cb = label.querySelector('input');
+                        cb.addEventListener('change', () => onModelCheckboxChange(cb));
+                        llmBox.appendChild(label);
+                    });
                 }
+
+                // Mark as initialized, send current selection to server
+                modelDropdownInitialized = true;
+                updateLLMCountLabel();
+                renderLLMPanels(selectedModels);
+                sendModelsToServer();
+                console.log('Models loaded — current selection:', [...selectedModels]);
             } catch (error) {
                 console.error('Error fetching models:', error);
-                modelSelect.innerHTML = '<option value="">Error loading models</option>';
+                llmBox.innerHTML = '<span style="color:var(--text-muted);font-size:12px;padding:4px 0;display:block;">Error loading models</span>';
             }
         }
 
-        // Handle model change
-        modelSelect.addEventListener('change', (e) => {
-            const newModel = e.target.value;
-            if (!newModel) return;
-
-            // Update model name in VLM output header
-            document.getElementById('modelName').textContent = newModel;
-
-            // Enable/disable prompt fields based on model
-            const isYoloMode = ['YOLO', 'YOLO_HAT'].includes(newModel.toUpperCase());
-            document.getElementById('promptPreset').disabled = isYoloMode;
-            document.getElementById('promptText').disabled = isYoloMode;
-            document.getElementById('maxTokens').disabled = isYoloMode;
-
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-                // Send model, API base, and API key together
-                websocket.send(JSON.stringify({
-                    type: 'update_model',
-                    model: newModel,
-                    api_base: apiBaseUrl.value.trim(),
-                    api_key: apiKey.value.trim()
-                }));
-                updateStatus('Model configured', 'connected');
-            }
-
-            // Trigger flash animation
-            modelSelect.classList.add('applied');
-            setTimeout(() => {
-                modelSelect.classList.remove('applied');
-            }, 600);
-        });
-
-        // Initialize prompt field state on load
-        const initialModel = modelSelect.value;
-        if (initialModel) {
-            const isYoloMode = ['YOLO', 'YOLO_HAT'].includes(initialModel.toUpperCase());
-            document.getElementById('promptPreset').disabled = isYoloMode;
-            document.getElementById('promptText').disabled = isYoloMode;
-            document.getElementById('maxTokens').disabled = isYoloMode;
-        }
-
-        // Also trigger flash on blur (when dropdown closes)
-        modelSelect.addEventListener('blur', () => {
-            const currentModel = modelSelect.value;
-            if (currentModel) {
-                // Trigger flash animation
-                modelSelect.classList.add('applied');
-                setTimeout(() => {
-                    modelSelect.classList.remove('applied');
-                }, 600);
-            }
-        });
+        // Initialize prompt field state based on initial selectedModels (YOLO default)
+        updatePromptFieldState();
+        updateLLMCountLabel();
+        renderLLMPanels(selectedModels); // Show YOLO banner immediately on page load
 
         // Helper function to apply prompt settings
         function applyPromptSettings() {
@@ -3523,34 +3690,13 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         // Helper function to apply API settings to server
         function applyApiSettings(options = {}) {
             const currentApiBase = apiBaseUrl.value.trim();
-            const currentApiKey = apiKey.value.trim();
-            const currentModel = modelSelect.value;
+            if (!currentApiBase) return;
 
-            if (!currentApiBase) {
-                return; // Silently skip if no API base
-            }
-
-            if (!currentModel) {
-                return; // Silently skip if no model selected yet
-            }
-
-            // Send update to server
             if (websocket && websocket.readyState === WebSocket.OPEN) {
-                websocket.send(JSON.stringify({
-                    type: 'update_model',
-                    model: currentModel,
-                    api_base: currentApiBase,
-                    api_key: currentApiKey
-                }));
-
-                if (options.showFeedback) {
-                    updateStatus('API settings updated', 'connected');
-                }
-
-                // Refresh models from new endpoint if requested
-                if (options.refreshModels) {
-                    fetchModels();
-                }
+                // Send current model selection + new API settings
+                sendModelsToServer();
+                if (options.showFeedback) updateStatus('API settings updated', 'connected');
+                if (options.refreshModels) fetchModels();
             }
         }
 
@@ -4030,14 +4176,10 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             websocket.onopen = () => {
                 console.log('WebSocket connected');
                 updateStatus('Connected', 'connected');
-
-                // Send current model/API settings to server after WebSocket connects
-                // This ensures auto-selected models are properly initialized on the server side
-                // Fix for race condition: page load might auto-select model before WS connects
-                const currentModel = modelSelect.value;
-                if (currentModel) {
-                    console.log('Initializing server with current model:', currentModel);
-                    applyApiSettings({ showFeedback: false });
+                // Re-send current model selection + API settings when WS connects
+                if (selectedModels.size > 0) {
+                    console.log('Initializing server with models:', [...selectedModels]);
+                    sendModelsToServer();
                 }
             };
 
@@ -4045,81 +4187,32 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 const data = JSON.parse(event.data);
 
                 if (data.type === 'vlm_response') {
-                    // Trigger animations for new messages based on settings
-                    if (data.text !== lastText) {
-                        resultText.classList.remove('fade');
-                        resultText.classList.remove('new-message');
+                    // New multi-model format: data.responses = [{model, text, is_processing, metrics}, ...]
+                    const responses = data.responses || [];
+                    if (responses.length > 0) {
+                        const debugData = {
+                            request_payloads: data.request_payload || null,   // server key: request_payload (dict by model)
+                            response_payloads: data.response_payload || null, // server key: response_payload (dict by model)
+                        };
+                        updateLLMPanels(responses, debugData);
 
-                        // Apply pop-in animation if enabled
-                        if (settings.popIn) {
-                            // Force reflow to restart animation
-                            void resultText.offsetWidth;
-
-                            resultText.classList.add('new-message');
-
-                            // Add glow effect if enabled
-                            if (settings.glow) {
-                                resultText.classList.add('with-glow');
+                        // Animate panels on new text (pop-in / fade)
+                        const firstText = responses[0]?.text || '';
+                        if (firstText !== lastText) {
+                            if (fadeTimeout) clearTimeout(fadeTimeout);
+                            if (settings.fade) {
+                                fadeTimeout = setTimeout(() => {
+                                    document.querySelectorAll('.llm-panel-text').forEach(el => el.classList.add('fade'));
+                                }, 2000);
                             }
-
-                            // Remove animation classes after it completes
-                            setTimeout(() => {
-                                resultText.classList.remove('new-message');
-                                resultText.classList.remove('with-glow');
-                            }, 400);
-                        }
-
-                        if (fadeTimeout) {
-                            clearTimeout(fadeTimeout);
-                        }
-
-                        // Start fade after 2 seconds if enabled
-                        if (settings.fade) {
-                            fadeTimeout = setTimeout(() => {
-                                resultText.classList.add('fade');
-                            }, 2000);
+                            lastText = firstText;
                         }
                     }
-
-                    updateResultText(data.text);
-                    lastText = data.text;
-
-                    // Check for error messages and apply error styling
-                    if (data.text && data.text.startsWith('[ERROR]')) {
-                        resultText.classList.add('error');
-                    } else {
-                        resultText.classList.remove('error');
-                    }
-
-                    // Update video overlay (always, visibility is controlled by CSS)
-                    videoOverlay.textContent = data.text;
-
-                    if (data.metrics) {
-                        metricsInline.style.display = 'flex';
-                        latencyValue.textContent = Math.round(data.metrics.last_latency_ms);
-                        avgLatencyValue.textContent = Math.round(data.metrics.avg_latency_ms);
-                        countValue.textContent = data.metrics.total_inferences;
-                    }
-                    // Handle YOLO detection results from vlm_response
+                    // YOLO detection overlay (same as before)
                     if (data.detection) {
                         window.handleDetectionResult(data.detection);
                     }
-                    if (data.request_payload) {
-                        const block = document.getElementById('requestPayloadDebug');
-                        const pre = document.getElementById('requestPayloadContent');
-                        if (block && pre && document.getElementById('debugShowRequestPayload')?.checked) {
-                            block.style.display = 'block';
-                            pre.textContent = JSON.stringify(data.request_payload, null, 2);
-                        }
-                    }
-                    if (data.response_payload) {
-                        const block = document.getElementById('responsePayloadDebug');
-                        const pre = document.getElementById('responsePayloadContent');
-                        if (block && pre && document.getElementById('debugShowResponsePayload')?.checked) {
-                            block.style.display = 'block';
-                            pre.textContent = JSON.stringify(data.response_payload, null, 2);
-                        }
-                    }
+
                 } else if (data.type === 'gpu_stats') {
                     window.lastSystemStats = data.stats;  // Store for theme changes
 
@@ -4137,22 +4230,10 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         pendingGPUStats = data.stats;
                     }
                 } else if (data.type === 'status') {
-                    // Don't show status messages in result balloon (too flashy)
-                    // Status is already shown in the header
+                    // Status shown in header, not result panel
                 } else if (data.type === 'server_config') {
-                    // Server sent its current configuration (model, api_base, prompt).
-                    // Only restore the model into the dropdown before fetchModels() has
-                    // run — once the dropdown is initialised we always want YOLO as the
-                    // default and don't let a stale server model override it.
-                    if (data.model) {
-                        if (!modelDropdownInitialized) {
-                            document.getElementById('modelName').textContent = data.model;
-                            if (modelSelect.querySelector(`option[value="${data.model}"]`)) {
-                                modelSelect.value = data.model;
-                            }
-                        }
-                    }
-                    if (data.api_base) {
+                    // Server sent its current config on connect; only use api_base if not yet set
+                    if (data.api_base && !modelDropdownInitialized) {
                         apiBaseUrl.value = data.api_base;
                         checkApiKeyRequirement(data.api_base);
                         updateSystemStatsVisibility(data.api_base);
@@ -4169,35 +4250,36 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                             show_response_payload: !!resCb?.checked
                         }));
                     }
+                } else if (data.type === 'models_updated') {
+                    // Server confirmed model update
+                    // Server sends: is_yolo_active, is_hat_check_mode, llm_models
+                    const yoloActive = data.is_yolo_active;
+                    const hatActive = data.is_hat_check_mode;
+                    isHatCheckModeActive = !!hatActive;
+
+                    if (yoloActive) {
+                        const label = hatActive ? 'YOLO Hat Check Active' : 'YOLO Object Detection Active';
+                        updateStatus(label, 'connected');
+                    } else if (data.llm_models && data.llm_models.length > 0) {
+                        updateStatus(`LLM Active: ${data.llm_models.join(', ')}`, 'connected');
+                    } else {
+                        // Nothing active — reset canvas
+                        yoloDetectionResult = null;
+                        lastCoords = [];
+                        canvasNeedsUpdate = true;
+                        videoOverlay.textContent = '';
+                    }
+                    console.log('models_updated:', data);
                 } else if (data.type === 'model_updated') {
-                    // Model was updated on server
-                    if (data.model) {
-                        document.getElementById('modelName').textContent = data.model;
-                        console.log('Model updated to:', data.model, 'is_yolo_mode:', data.is_yolo_mode, 'is_hat_check_mode:', data.is_hat_check_mode);
-
-                        // Track hat check mode for the renderer
-                        isHatCheckModeActive = !!data.is_hat_check_mode;
-
-                        // Handle YOLO mode
-                        if (data.is_yolo_mode) {
-                            const modeLabel = data.is_hat_check_mode
-                                ? 'YOLO Hat Check Active'
-                                : 'YOLO Object Detection Active';
-                            updateStatus(modeLabel, 'connected');
-                        } else {
-                            // Clear YOLO detection results and overlay when switching to VLM mode
-                            isHatCheckModeActive = false;
-                            console.log('Clearing YOLO detection result and canvas');
-                            console.log('Before: yoloDetectionResult =', yoloDetectionResult);
-                            yoloDetectionResult = null;
-                            lastCoords = []; // Clear VLM CoT boxes
-                            canvasNeedsUpdate = true;
-                            videoOverlay.textContent = '';
-                            console.log('After: yoloDetectionResult =', yoloDetectionResult);
-                        }
+                    // Legacy single-model update (may arrive from old server code)
+                    isHatCheckModeActive = !!data.is_hat_check_mode;
+                    if (!data.is_yolo_mode) {
+                        yoloDetectionResult = null;
+                        lastCoords = [];
+                        canvasNeedsUpdate = true;
+                        videoOverlay.textContent = '';
                     }
                 } else if (data.type === 'prompt_updated') {
-                    // Prompt was updated on server (already handled in applyPrompt)
                     console.log('Prompt updated:', data.prompt);
                 } else if (data.type === 'processing_updated') {
                     if (data.process_every != null) processEvery.value = String(data.process_every);
@@ -4485,16 +4567,9 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 testRtspBtn.disabled = false;
             }
 
-            const contentDiv = document.getElementById('resultTextContent');
-            if (contentDiv) {
-                contentDiv.textContent = '';
-                contentDiv.innerHTML = '';
-            } else {
-                resultText.textContent = '';
-                resultText.innerHTML = '';
-            }
-            resultText.classList.remove('fade');
-            resultText.classList.remove('error');
+            // Clear all LLM panel contents on stop
+            document.querySelectorAll('[id^="llmContent-"]').forEach(el => { el.textContent = ''; el.innerHTML = ''; });
+            document.querySelectorAll('.llm-panel-text').forEach(el => el.classList.remove('fade', 'error'));
             videoOverlay.textContent = '';
             lastText = '';
         }
@@ -4584,20 +4659,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             (selectedPrompt && selectedPrompt.includes("Person (Hat)") && selectedPrompt.includes("Person"))) {
             isHatModeActive = true;
             console.log('Hat mode activated');
-
-            // Auto-select the correct model for YOLO detection
-            const MODEL_FOR_HAT = 'qwen2.5vl:7b';
-            const currentModel = modelSelect.value;
-            // Only switch model if not in YOLO mode and not already set to the correct model
-            if (currentModel.toUpperCase() !== 'YOLO' && currentModel !== MODEL_FOR_HAT) {
-                modelSelect.value = MODEL_FOR_HAT;
-                // Trigger the model change handler
-                const event = new Event('change', { bubbles: true });
-                modelSelect.dispatchEvent(event);
-                console.log(`Auto-selected model: ${MODEL_FOR_HAT} for Hat Check Demo`);
-            } else if (currentModel.toUpperCase() === 'YOLO') {
-                console.log('YOLO mode active - Hat Check Demo will use YOLO detection');
-            }
+            // With the new checkbox UI, the user manually selects LLM(s) and YOLO.
+            // Auto-switching is removed to avoid overriding the user's intentional selection.
         } else {
             isHatModeActive = false;
             lastCoords = [];

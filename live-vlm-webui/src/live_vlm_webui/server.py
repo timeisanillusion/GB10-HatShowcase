@@ -95,6 +95,9 @@ def get_or_create_session(session_id: str):
                 api_key=cfg.get("api_key", "EMPTY"),
                 prompt=cfg.get("prompt", "Describe what you see in this image in one sentence."),
             ),
+            # Dict of actively-selected LLM services (model_name → VLMService, max 2).
+            # Separate from vlm_service which is the "config" service for prompt/API updates.
+            "vlm_services": {},
             "detection_backend": detection_backend,
             "processor_tracks": set(),  # Track active processor tracks for dynamic updates
             "show_request_payload": False,
@@ -114,52 +117,46 @@ def send_to_session(session_id: str, message: str):
 
 
 def get_session_callback(session_id: str):
-    """Return a text_callback that sends VLM results only to this session."""
+    """Return a text_callback that sends VLM results only to this session.
 
-    def callback(text: str, metrics: dict):
-        out = {"type": "vlm_response", "text": text, "metrics": metrics}
-        session = sessions.get(session_id)
-        if session and session.get("vlm_service"):
-            svc = session["vlm_service"]
-            if session.get("show_request_payload"):
-                payload = svc.get_last_request_payload()
-                if payload is not None:
-                    out["request_payload"] = payload
-            if session.get("show_response_payload"):
-                payload = svc.get_last_response_payload()
-                if payload is not None:
-                    try:
-                        out["response_payload"] = json.loads(json.dumps(payload, default=str))
-                    except (TypeError, ValueError):
-                        out["response_payload"] = payload
-        send_to_session(session_id, json.dumps(out))
+    The callback signature is:
+        callback(vlm_states: list[dict], detection_result: DetectionResult | None)
 
-    def callback_with_detection(text: str, metrics: dict, detection_result=None):
-        """Callback that also includes YOLO detection results."""
-        out = {"type": "vlm_response", "text": text, "metrics": metrics}
+    ``vlm_states`` is a list of per-model state dicts:
+        [{"model": str, "text": str, "is_processing": bool, "metrics": dict}, ...]
+
+    This is called by VideoProcessorTrack on every frame.
+    """
+
+    def callback(vlm_states: list, detection_result=None):
+        out = {
+            "type": "vlm_response",
+            "responses": vlm_states,  # list of {model, text, is_processing, metrics}
+        }
         session = sessions.get(session_id)
-        if session and session.get("vlm_service"):
-            svc = session["vlm_service"]
-            if session.get("show_request_payload"):
-                payload = svc.get_last_request_payload()
-                if payload is not None:
-                    out["request_payload"] = payload
-            if session.get("show_response_payload"):
-                payload = svc.get_last_response_payload()
-                if payload is not None:
+        if session and session.get("show_request_payload"):
+            payloads = {}
+            for model_name, svc in session.get("vlm_services", {}).items():
+                p = svc.get_last_request_payload()
+                if p is not None:
+                    payloads[model_name] = p
+            if payloads:
+                out["request_payload"] = payloads
+        if session and session.get("show_response_payload"):
+            payloads = {}
+            for model_name, svc in session.get("vlm_services", {}).items():
+                p = svc.get_last_response_payload()
+                if p is not None:
                     try:
-                        out["response_payload"] = json.loads(json.dumps(payload, default=str))
+                        payloads[model_name] = json.loads(json.dumps(p, default=str))
                     except (TypeError, ValueError):
-                        out["response_payload"] = payload
-        # Add YOLO detection results
+                        payloads[model_name] = p
+            if payloads:
+                out["response_payload"] = payloads
         if detection_result is not None:
             out["detection"] = detection_result.to_dict()
         send_to_session(session_id, json.dumps(out))
 
-    # Check if we need detection callback
-    session = sessions.get(session_id)
-    if session and session.get("detection_backend"):
-        return callback_with_detection
     return callback
 
 
@@ -340,6 +337,20 @@ async def _warmup_vlm_model(svc, model_name: str, timeout: float = 300.0) -> boo
             await asyncio.sleep(PING_INTERVAL)
 
 
+async def _warmup_and_activate(svc, model_name: str, session_id: str) -> None:
+    """
+    Background task: run a warmup ping for a newly-added VLM service, then
+    clear the is_model_switching flag so frames start flowing to it.
+    """
+    ready = await _warmup_vlm_model(svc, model_name)
+    if not ready:
+        logger.warning(
+            f"[warmup-bg] '{model_name}' warmup timed out for session {session_id}"
+        )
+    svc.is_model_switching = False
+    logger.info(f"[warmup-bg] '{model_name}' is ready (session {session_id})")
+
+
 # Keywords that indicate a model supports vision/image input.
 # Used to filter the model list so text-only Ollama models are hidden.
 _VISION_KEYWORDS = (
@@ -515,6 +526,107 @@ async def websocket_handler(request):
                                     "max_tokens": max_tokens,
                                 }
                             )
+
+                    elif data.get("type") == "update_models":
+                        # Multi-model selection handler.
+                        # Payload: {"type": "update_models", "models": ["YOLO", "qwen2.5vl:7b", ...]}
+                        new_models = data.get("models", [])
+                        api_base = data.get("api_base", "").strip()
+                        api_key  = data.get("api_key",  "").strip()
+
+                        # Split YOLO (max 1) from LLMs (max 2)
+                        yolo_sel = next(
+                            (m for m in new_models if m.upper() in ("YOLO", "YOLO_HAT")), None
+                        )
+                        llm_sel  = [m for m in new_models
+                                    if m.upper() not in ("YOLO", "YOLO_HAT")][:2]
+
+                        is_hat_check = bool(yolo_sel and yolo_sel.upper() == "YOLO_HAT")
+                        is_yolo_active = yolo_sel is not None
+
+                        # ── YOLO backend ─────────────────────────────────────────────
+                        if is_hat_check:
+                            try:
+                                from .detection import create_detection_backend
+                                session["detection_backend"] = create_detection_backend(
+                                    backend_type="yolo_world",
+                                    model_name="yolov8s-worldv2.pt",
+                                    prompt="person, hat, cap, baseball cap, hard hat, helmet, beanie",
+                                )
+                                logger.info(f"[{session_id}] YOLO Hat Check backend initialized")
+                            except Exception as e:
+                                logger.warning(f"[{session_id}] YOLO Hat Check init failed: {e}")
+                                session["detection_backend"] = None
+                        elif is_yolo_active:
+                            try:
+                                from .detection import create_detection_backend
+                                session["detection_backend"] = create_detection_backend(
+                                    backend_type="yolo",
+                                    model_name="yolov8s.pt",
+                                )
+                                logger.info(f"[{session_id}] YOLO detection backend initialized")
+                            except Exception as e:
+                                logger.warning(f"[{session_id}] YOLO init failed: {e}")
+                                session["detection_backend"] = None
+                        else:
+                            session["detection_backend"] = None
+
+                        for proc_track in session.get("processor_tracks", set()):
+                            proc_track.detection_backend = session.get("detection_backend")
+                            proc_track.hat_check_mode = is_hat_check
+                            proc_track.last_detection_result = None
+                            proc_track.last_detection_time = 0
+
+                        # ── LLM services ─────────────────────────────────────────────
+                        if "vlm_services" not in session:
+                            session["vlm_services"] = {}
+
+                        current_svcs = session["vlm_services"]
+                        current_llms = set(current_svcs.keys())
+                        new_llms     = set(llm_sel)
+                        base_svc     = session["vlm_service"]
+                        eff_api_base = api_base or base_svc.api_base
+                        eff_api_key  = api_key  or base_svc.api_key
+
+                        # Remove deselected LLMs
+                        for removed in current_llms - new_llms:
+                            removed_svc = current_svcs.pop(removed)
+                            logger.info(f"[{session_id}] Removing LLM: {removed}")
+                            asyncio.create_task(
+                                _unload_ollama_model(removed_svc.api_base, removed)
+                            )
+
+                        # Add newly selected LLMs
+                        for added in new_llms - current_llms:
+                            logger.info(f"[{session_id}] Adding LLM: {added}")
+                            new_svc = VLMService(
+                                model=added,
+                                api_base=eff_api_base,
+                                api_key=eff_api_key,
+                                prompt=base_svc.prompt,
+                                max_tokens=base_svc.max_tokens,
+                            )
+                            # Hold frames until warmup confirms the model is ready
+                            new_svc.is_model_switching = True
+                            new_svc.current_response = f"Loading {added}…"
+                            current_svcs[added] = new_svc
+                            asyncio.create_task(
+                                _warmup_and_activate(new_svc, added, session_id)
+                            )
+
+                        # Push updated service list to all active processor tracks
+                        vlm_list = list(current_svcs.values())
+                        for proc_track in session.get("processor_tracks", set()):
+                            proc_track.vlm_services = vlm_list
+
+                        await ws.send_json({
+                            "type": "models_updated",
+                            "active_models": new_models,
+                            "yolo_model": yolo_sel,
+                            "llm_models": llm_sel,
+                            "is_yolo_active": is_yolo_active,
+                            "is_hat_check_mode": is_hat_check,
+                        })
 
                     elif data.get("type") == "update_model":
                         new_model = data.get("model", "").strip()
@@ -859,7 +971,10 @@ async def offer(request):
             relayed_rtsp = relay.subscribe(rtsp_track)
 
             processor_track = VideoProcessorTrack(
-                relayed_rtsp, session_vlm, text_callback=session_callback, detection_backend=session.get("detection_backend")
+                relayed_rtsp,
+                vlm_services=list(session.get("vlm_services", {}).values()),
+                text_callback=session_callback,
+                detection_backend=session.get("detection_backend"),
             )
 
             # Add processor track to session's tracking set for dynamic updates
@@ -885,7 +1000,10 @@ async def offer(request):
             if track.kind == "video":
                 # Create processor track with this session's VLM and session-scoped callback
                 processor_track = VideoProcessorTrack(
-                    relay.subscribe(track), session_vlm, text_callback=session_callback, detection_backend=session.get("detection_backend")
+                    relay.subscribe(track),
+                    vlm_services=list(session.get("vlm_services", {}).values()),
+                    text_callback=session_callback,
+                    detection_backend=session.get("detection_backend"),
                 )
 
                 # Add processor track to session's tracking set for dynamic updates
