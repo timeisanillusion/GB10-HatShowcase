@@ -290,6 +290,56 @@ async def _unload_ollama_model(api_base: str, model_name: str) -> None:
         logger.warning(f"Could not unload '{model_name}' from Ollama: {e}")
 
 
+async def _warmup_vlm_model(svc, model_name: str, timeout: float = 300.0) -> bool:
+    """
+    Send lightweight text-only ping requests to a newly-selected model until it
+    responds successfully.  The caller must set ``svc.is_model_switching = True``
+    before calling; this function clears the flag only on success or timeout.
+
+    Returns True when the model is ready, False if the timeout expires first.
+    """
+    import time as _time
+    PING_INTERVAL = 10  # seconds between attempts
+    start = _time.monotonic()
+    attempt = 0
+
+    while True:
+        elapsed = _time.monotonic() - start
+        if elapsed >= timeout:
+            logger.warning(
+                f"[warmup] Timed out waiting for '{model_name}' to load "
+                f"after {elapsed:.0f}s — clearing switching flag anyway"
+            )
+            return False
+
+        attempt += 1
+        svc.current_response = (
+            f"Loading {model_name}… ({elapsed:.0f}s elapsed, attempt {attempt})"
+        )
+        logger.info(
+            f"[warmup] Pinging '{model_name}' (attempt {attempt}, {elapsed:.0f}s elapsed)"
+        )
+
+        try:
+            await svc.client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=5,
+                temperature=0.0,
+            )
+            # A successful response means the model is loaded and ready
+            logger.info(
+                f"[warmup] '{model_name}' is ready after {elapsed:.0f}s "
+                f"({attempt} attempt(s))"
+            )
+            svc.current_response = f"{model_name} is ready."
+            return True
+        except Exception as exc:
+            raw = str(exc)
+            logger.warning(f"[warmup] '{model_name}' not ready yet (attempt {attempt}): {raw}")
+            await asyncio.sleep(PING_INTERVAL)
+
+
 # Keywords that indicate a model supports vision/image input.
 # Used to filter the model list so text-only Ollama models are hidden.
 _VISION_KEYWORDS = (
@@ -501,11 +551,25 @@ async def websocket_handler(request):
                                     f"before loading {new_model}"
                                 )
                                 await _unload_ollama_model(svc.api_base, old_model)
-                                # Give Ollama a moment to release the memory pages
-                                await asyncio.sleep(3)
+
+                                # Update the model name and API settings NOW so the
+                                # warmup pings target the correct endpoint/model.
+                                svc.model = new_model
+                                if api_base:
+                                    svc.update_api_settings(api_base, api_key if api_key else None)
+
+                                # Hold is_model_switching until the new model actually
+                                # responds successfully — avoids sending real frames to
+                                # a model that is still loading (which caused HTTP 500s).
+                                ready = await _warmup_vlm_model(svc, new_model)
+                                if not ready:
+                                    logger.warning(
+                                        f"[{session_id}] '{new_model}' did not become ready within "
+                                        f"warmup timeout; clearing switching flag and continuing"
+                                    )
                                 svc.is_model_switching = False
                                 logger.info(
-                                    f"[{session_id}] '{old_model}' unloaded, proceeding to load '{new_model}'"
+                                    f"[{session_id}] '{new_model}' is ready, switching flag cleared"
                                 )
 
                             svc.model = new_model
