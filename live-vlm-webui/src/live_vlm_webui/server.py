@@ -155,6 +155,11 @@ def get_session_callback(session_id: str):
                 out["response_payload"] = payloads
         if detection_result is not None:
             out["detection"] = detection_result.to_dict()
+        # Aggregate token totals across all active VLM services for cost display
+        if session:
+            total_in = sum(svc.total_input_tokens for svc in session.get("vlm_services", {}).values())
+            total_out = sum(svc.total_output_tokens for svc in session.get("vlm_services", {}).values())
+            out["token_totals"] = {"input": total_in, "output": total_out}
         send_to_session(session_id, json.dumps(out))
 
     return callback

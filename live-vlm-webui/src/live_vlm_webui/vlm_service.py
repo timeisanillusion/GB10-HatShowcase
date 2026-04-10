@@ -73,6 +73,9 @@ class VLMService:
         self.last_inference_time = 0.0  # seconds
         self.total_inferences = 0
         self.total_inference_time = 0.0
+        # Token tracking (for cost estimation)
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
     async def analyze_image(self, image: Image.Image, prompt: Optional[str] = None) -> str:
         """
@@ -211,6 +214,12 @@ class VLMService:
             self.last_inference_time = inference_time
             self.total_inferences += 1
             self.total_inference_time += inference_time
+
+            # Accumulate token counts (Ollama returns usage in OpenAI-compatible format)
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                self.total_input_tokens += getattr(usage, "prompt_tokens", 0) or 0
+                self.total_output_tokens += getattr(usage, "completion_tokens", 0) or 0
 
             result = response.choices[0].message.content.strip()
             logger.info(f"VLM response: {result} (latency: {inference_time*1000:.0f}ms)")
@@ -375,6 +384,8 @@ class VLMService:
             "avg_latency_ms": avg_latency * 1000,
             "total_inferences": self.total_inferences,
             "is_processing": self.is_processing,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
         }
 
     def update_prompt(self, new_prompt: str, max_tokens: Optional[int] = None) -> None:
