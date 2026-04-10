@@ -91,9 +91,21 @@ class VLMService:
         try:
             start_time = time.perf_counter()
 
+            # Downscale to max 896px on the long edge before encoding.
+            # Qwen2.5-VL tiles images into 14×14-pixel patches; beyond ~896px you
+            # get more visual tokens but no meaningful accuracy gain for live scene
+            # understanding, and inference time scales roughly with token count.
+            MAX_SIDE = 896
+            w, h = image.size
+            if max(w, h) > MAX_SIDE:
+                scale = MAX_SIDE / max(w, h)
+                image = image.resize(
+                    (int(w * scale), int(h * scale)), Image.LANCZOS
+                )
+
             # Convert PIL Image to base64
             img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format="JPEG")
+            image.save(img_byte_arr, format="JPEG", quality=85)
             img_byte_arr = img_byte_arr.getvalue()
             img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
 
