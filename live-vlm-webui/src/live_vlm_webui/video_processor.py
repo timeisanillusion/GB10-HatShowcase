@@ -75,6 +75,10 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.last_detection_time = 0  # Track when detection was last run
         # Hat check mode: post-process YOLO-World results to associate hats with persons
         self.hat_check_mode: bool = hat_check_mode
+        # Guard that prevents YOLO tasks from queuing up behind each other.
+        # recv() must never await YOLO — if a detection is already running the
+        # incoming frame is simply skipped so the WebRTC buffer never fills up.
+        self._yolo_busy: bool = False
         # Hash of the last state sent via text_callback; used to suppress redundant
         # WebSocket messages when neither the VLM text nor the detection result changed.
         self._last_callback_hash: int = 0
@@ -234,29 +238,20 @@ class VideoProcessorTrack(VideoStreamTrack):
                     # Convert to PIL Image for VLM
                     pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
-                    # Perform YOLO detection if backend is available (faster than VLM)
-                    if self.detection_backend is not None:
-                        detection_task = asyncio.create_task(self._run_yolo_detection(pil_img))
-                        logger.debug(f"Frame {self.frame_count}: Running YOLO detection")
-                    else:
-                        detection_task = None
-
-                    # Send to VLM services (all active ones, fire-and-forget)
-                    # YOLO and LLMs run independently — both can be active on the same frame
+                    # Send to VLM services (fire-and-forget, never blocks recv())
                     if self._vlm_services:
                         for svc in self._vlm_services:
                             asyncio.create_task(svc.process_frame(pil_img))
                         logger.info(f"Frame {self.frame_count}: Sending to {len(self._vlm_services)} VLM(s) (interval={interval})")
 
-                    # Update detection result if YOLO is available
-                    if detection_task:
-                        try:
-                            result = await detection_task
-                            self.last_detection_result = result
-                            self.last_detection_time = time.time()
-                            logger.debug(f"Frame {self.frame_count}: YOLO detected {len(result.labels)} objects")
-                        except Exception as e:
-                            logger.warning(f"YOLO detection failed: {e}")
+                    # YOLO detection — fire-and-forget with a busy-skip guard.
+                    # recv() must NEVER await a YOLO task; doing so blocks the
+                    # WebRTC frame pump and causes the input buffer to grow until
+                    # lag reaches 10+ seconds.  If a detection is still running
+                    # when the next trigger fires we simply skip that frame.
+                    if self.detection_backend is not None and not self._yolo_busy:
+                        self._yolo_busy = True
+                        asyncio.create_task(self._run_yolo_detection_bg(pil_img))
 
             # Build callback payload and send — but only when state actually changed.
             # The callback fires every frame at 30 fps, so without this guard the
@@ -294,6 +289,24 @@ class VideoProcessorTrack(VideoStreamTrack):
         except Exception as e:
             logger.error(f"Error processing frame: {e}", exc_info=True)
             raise
+
+    async def _run_yolo_detection_bg(self, image: Image.Image) -> None:
+        """
+        Fire-and-forget wrapper around _run_yolo_detection.
+
+        Sets _yolo_busy=True before running and clears it when done so that
+        recv() can skip frames while a detection is in flight rather than
+        queuing tasks that would cause growing lag.
+        """
+        try:
+            result = await self._run_yolo_detection(image)
+            self.last_detection_result = result
+            self.last_detection_time = time.time()
+            logger.debug(f"YOLO detected {len(result.labels)} objects")
+        except Exception as e:
+            logger.warning(f"YOLO detection failed: {e}")
+        finally:
+            self._yolo_busy = False
 
     async def _run_yolo_detection(self, image: Image.Image) -> DetectionResult:
         """
