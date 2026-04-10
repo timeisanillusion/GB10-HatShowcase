@@ -61,9 +61,10 @@ class YoloDetectionBackend(DetectionBackend):
 
         async with self._init_lock:
             if self.model is None:
-                logger.info(f"Loading YOLO model: {self.model_name}")
+                logger.info(f"Loading YOLO model: {self.model_name} (CPU mode — avoids VRAM conflict with Ollama)")
                 self.model = YOLO(self.model_name)
-                logger.info(f"YOLO model loaded: {self.model_name}")
+                self.model.to("cpu")
+                logger.info(f"YOLO model loaded on CPU: {self.model_name}")
 
     async def detect(self, image: Image.Image) -> DetectionResult:
         """
@@ -82,11 +83,12 @@ class YoloDetectionBackend(DetectionBackend):
         import numpy as np
         img_array = np.array(image)
 
-        # Run inference
+        # Run inference on CPU to avoid VRAM conflict with Ollama LLMs
         results = self.model(
             img_array,
             conf=0.25,  # Confidence threshold
             iou=0.45,   # IoU threshold
+            device="cpu",
             verbose=False,
         )
 
