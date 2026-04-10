@@ -75,6 +75,9 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.last_detection_time = 0  # Track when detection was last run
         # Hat check mode: post-process YOLO-World results to associate hats with persons
         self.hat_check_mode: bool = hat_check_mode
+        # Hash of the last state sent via text_callback; used to suppress redundant
+        # WebSocket messages when neither the VLM text nor the detection result changed.
+        self._last_callback_hash: int = 0
 
     # ── VLM service accessors ────────────────────────────────────────────────
 
@@ -255,7 +258,11 @@ class VideoProcessorTrack(VideoStreamTrack):
                         except Exception as e:
                             logger.warning(f"YOLO detection failed: {e}")
 
-            # Build callback payload and send every frame
+            # Build callback payload and send — but only when state actually changed.
+            # The callback fires every frame at 30 fps, so without this guard the
+            # frontend receives dozens of identical messages per second, causing the
+            # text to appear to flicker/re-update even when the VLM hasn't produced
+            # a new result yet.
             if self.text_callback:
                 vlm_states = self._get_vlm_states()
                 det_result = (
@@ -265,7 +272,16 @@ class VideoProcessorTrack(VideoStreamTrack):
                         and time.time() - self.last_detection_time < 2.0)
                     else None
                 )
-                self.text_callback(vlm_states, det_result)
+                # Compute a cheap hash of the state to detect real changes
+                state_key = tuple(
+                    (s["model"], s["text"], s["is_processing"])
+                    for s in vlm_states
+                )
+                det_key = tuple(sorted(det_result.labels)) if det_result else ()
+                new_hash = hash((state_key, det_key))
+                if new_hash != self._last_callback_hash:
+                    self._last_callback_hash = new_hash
+                    self.text_callback(vlm_states, det_result)
 
             # Return original frame directly - zero-copy passthrough!
             # This avoids expensive BGR→YUV conversion

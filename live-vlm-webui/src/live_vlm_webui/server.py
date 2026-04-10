@@ -155,10 +155,13 @@ def get_session_callback(session_id: str):
                 out["response_payload"] = payloads
         if detection_result is not None:
             out["detection"] = detection_result.to_dict()
-        # Aggregate token totals across all active VLM services for cost display
+        # Aggregate token totals across all active VLM services for cost display.
+        # saved_token_totals accumulates counts from services that have been removed
+        # (e.g. model deselected) so the cost display never resets to $0.
         if session:
-            total_in = sum(svc.total_input_tokens for svc in session.get("vlm_services", {}).values())
-            total_out = sum(svc.total_output_tokens for svc in session.get("vlm_services", {}).values())
+            saved = session.get("saved_token_totals", {"input": 0, "output": 0})
+            total_in  = saved["input"]  + sum(svc.total_input_tokens  for svc in session.get("vlm_services", {}).values())
+            total_out = saved["output"] + sum(svc.total_output_tokens for svc in session.get("vlm_services", {}).values())
             out["token_totals"] = {"input": total_in, "output": total_out}
         send_to_session(session_id, json.dumps(out))
 
@@ -386,9 +389,10 @@ async def _warmup_and_activate(svc, model_name: str, session_id: str) -> None:
 # Used to filter the model list so text-only Ollama models are hidden.
 _VISION_KEYWORDS = (
     "vl", "vlm", "vision", "llava", "moondream", "bakllava",
-    "minicpm-v", "minicpmv", "internvl", "cogvlm", "idefics",
+    "minicpm-v", "glm", "internvl", "cogvlm", "idefics",
     "pixtral", "gemini", "gpt-4v", "gpt-4o", "claude-3",
     "qwen-vl", "qwenvl", "phi-3-vision", "phi3-vision",
+    "gemma3", "llama3.2", "llama-3.2"
 )
 
 def _is_vision_model(model_id: str) -> bool:
@@ -619,9 +623,14 @@ async def websocket_handler(request):
                         eff_api_base = api_base or base_svc.api_base
                         eff_api_key  = api_key  or base_svc.api_key
 
-                        # Remove deselected LLMs
+                        # Remove deselected LLMs — save their token counts first so
+                        # the cost estimate bar doesn't reset to $0 on deselect.
+                        if "saved_token_totals" not in session:
+                            session["saved_token_totals"] = {"input": 0, "output": 0}
                         for removed in current_llms - new_llms:
                             removed_svc = current_svcs.pop(removed)
+                            session["saved_token_totals"]["input"]  += removed_svc.total_input_tokens
+                            session["saved_token_totals"]["output"] += removed_svc.total_output_tokens
                             logger.info(f"[{session_id}] Removing LLM: {removed}")
                             asyncio.create_task(
                                 _unload_ollama_model(removed_svc.api_base, removed)
@@ -1776,3 +1785,4 @@ def stop():
 
 if __name__ == "__main__":
     main()
+                                                                                   
