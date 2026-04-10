@@ -119,3 +119,20 @@ Apache 2.0 - See `live-vlm-webui/LICENSE` for details.
 ## 🙏 Acknowledgments
 
 Built on top of [NVIDIA Live VLM WebUI](https://github.com/nvidia-ai-iot/live-vlm-webui) - a universal web interface for real-time Vision Language Model interaction.
+
+## GB10 Specifics
+For some models you may need to edit the ollama context lenght:
+```bash
+sudo systemctl edit ollama
+```
+In the editor that opens, add:
+```bash
+[Service]
+Environment="OLLAMA_CONTEXT_LENGTH=8192"
+```
+
+Save, then:
+```bash
+bashsudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
