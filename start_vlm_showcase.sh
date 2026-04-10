@@ -27,6 +27,12 @@ if [ -d "$REPO_DIR" ]; then
     # Activate venv
     [[ -n "$VIRTUAL_ENV" ]] || source "$VENV_PATH/bin/activate"
 
+    # Auto-install package if missing (e.g. after fresh venv or git clone)
+    if ! python -c "import live_vlm_webui" 2>/dev/null; then
+        echo "📦 Package not installed — running pip install -e . ..."
+        pip install -e . --quiet
+    fi
+
     LOCAL_IP=$(hostname -I | awk '{print $1}')
 
     echo "====================================================="
