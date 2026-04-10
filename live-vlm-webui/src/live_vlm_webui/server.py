@@ -549,9 +549,20 @@ async def websocket_handler(request):
                         new_prompt = data.get("prompt", "").strip()
                         max_tokens = data.get("max_tokens")
                         if new_prompt and svc:
+                            # Update the base service (used as template when new
+                            # models are added via update_models).
                             svc.update_prompt(new_prompt, max_tokens)
+
+                            # Also update every currently-active VLM service so
+                            # the prompt takes effect immediately without the user
+                            # having to deselect and reselect each model.
+                            for active_svc in session.get("vlm_services", {}).values():
+                                active_svc.update_prompt(new_prompt, max_tokens)
+
                             logger.info(
-                                f"[{session_id}] Prompt updated: {new_prompt}, max_tokens: {max_tokens}"
+                                f"[{session_id}] Prompt updated across "
+                                f"{1 + len(session.get('vlm_services', {}))} service(s): "
+                                f"{new_prompt!r}, max_tokens={max_tokens}"
                             )
 
                             await ws.send_json(
