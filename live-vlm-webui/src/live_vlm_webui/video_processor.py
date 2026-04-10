@@ -239,13 +239,11 @@ class VideoProcessorTrack(VideoStreamTrack):
                         detection_task = None
 
                     # Send to VLM services (all active ones, fire-and-forget)
-                    # Skip when YOLO detection is active (they are mutually exclusive per frame)
-                    if detection_task is None and self._vlm_services:
+                    # YOLO and LLMs run independently — both can be active on the same frame
+                    if self._vlm_services:
                         for svc in self._vlm_services:
                             asyncio.create_task(svc.process_frame(pil_img))
                         logger.info(f"Frame {self.frame_count}: Sending to {len(self._vlm_services)} VLM(s) (interval={interval})")
-                    elif detection_task is not None:
-                        logger.debug(f"Frame {self.frame_count}: YOLO active, skipping VLM")
 
                     # Update detection result if YOLO is available
                     if detection_task:
