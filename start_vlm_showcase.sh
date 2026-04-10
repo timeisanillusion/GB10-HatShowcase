@@ -27,16 +27,22 @@ if [ -d "$REPO_DIR" ]; then
     # Activate venv
     [[ -n "$VIRTUAL_ENV" ]] || source "$VENV_PATH/bin/activate"
 
+    # Ensure setuptools is pinned below 82 — torch 2.11 requires setuptools<82
+    # and a higher version breaks the editable-install path finder at import time.
+    SETUPTOOLS_VER=$(python -c "import setuptools; print(setuptools.__version__)" 2>/dev/null || echo "0")
+    SETUPTOOLS_MAJOR=$(echo "$SETUPTOOLS_VER" | cut -d. -f1)
+    if [ "$SETUPTOOLS_MAJOR" -ge 82 ] 2>/dev/null; then
+        echo "📦 Pinning setuptools<82 (torch compatibility)..."
+        pip install "setuptools<82" --quiet
+    fi
+
     # Auto-install package if missing (e.g. after fresh venv or git clone).
-    # NOTE: do NOT upgrade setuptools — torch requires setuptools<82 and
-    # upgrading it breaks the editable-install path finder at import time.
     if ! python -c "import live_vlm_webui" 2>/dev/null; then
         echo "📦 Package not installed — running pip install -e . ..."
         pip install -e . || { echo "❌ pip install failed — see errors above"; exit 1; }
         # Verify the install actually worked before handing off to start_server.sh
         if ! python -c "import live_vlm_webui" 2>/dev/null; then
-            echo "❌ Package installed but import still fails."
-            echo "   Try: pip install setuptools==81.0.0 then re-run."
+            echo "❌ Package installed but import still fails. Check errors above."
             exit 1
         fi
     fi
