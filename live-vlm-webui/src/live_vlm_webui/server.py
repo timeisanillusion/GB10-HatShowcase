@@ -266,8 +266,7 @@ async def index(request):
 
 async def _unload_ollama_model(api_base: str, model_name: str) -> None:
     """
-    Explicitly unload a model from Ollama so its memory is freed before
-    a larger model is loaded.
+    Explicitly unload a model from Ollama so its memory is freed.
 
     Ollama exposes this via its native /api/generate endpoint:
     POST { "model": "<name>", "keep_alive": 0 } evicts the model immediately.
@@ -282,14 +281,41 @@ async def _unload_ollama_model(api_base: str, model_name: str) -> None:
             ollama_base = ollama_base[:-3]
         url = f"{ollama_base}/api/generate"
         payload = {"model": model_name, "keep_alive": 0}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        async with aiohttp.ClientSession() as client:
+            async with client.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 logger.info(
                     f"Unloaded '{model_name}' from Ollama (HTTP {resp.status})"
                 )
     except Exception as e:
-        # Non-fatal — log and continue; the model switch will still proceed
+        # Non-fatal — log and continue
         logger.warning(f"Could not unload '{model_name}' from Ollama: {e}")
+
+
+async def _unload_all_ollama_models(api_base: str) -> None:
+    """
+    Query Ollama's /api/ps for currently loaded models and unload each one.
+    Used at startup (to clear stale models from a previous run) and shutdown.
+    """
+    try:
+        ollama_base = api_base.rstrip("/")
+        if ollama_base.endswith("/v1"):
+            ollama_base = ollama_base[:-3]
+        async with aiohttp.ClientSession() as client:
+            async with client.get(
+                f"{ollama_base}/api/ps",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    return
+                data = await resp.json()
+        loaded = [m["name"] for m in data.get("models", [])]
+        if not loaded:
+            logger.info("No Ollama models currently loaded")
+            return
+        logger.info(f"Unloading {len(loaded)} Ollama model(s): {loaded}")
+        await asyncio.gather(*[_unload_ollama_model(api_base, m) for m in loaded])
+    except Exception as e:
+        logger.warning(f"Could not list/unload Ollama models: {e}")
 
 
 async def _warmup_vlm_model(svc, model_name: str, timeout: float = 300.0) -> bool:
@@ -1232,6 +1258,13 @@ async def on_startup(app):
     """Initialize resources on server startup"""
     global gpu_monitor, gpu_monitor_task
 
+    # Clear any Ollama models left loaded from a previous run so we start
+    # with a clean memory slate and don't surprise the user with 80GB already used.
+    api_base = default_vlm_config.get("api_base", "")
+    if api_base:
+        logger.info("Clearing stale Ollama models from previous session…")
+        await _unload_all_ollama_models(api_base)
+
     # Initialize GPU monitor
     try:
         gpu_monitor = create_monitor()
@@ -1282,6 +1315,16 @@ async def on_shutdown(app):
     coros = [pc.close() for pc in pcs]
     await asyncio.gather(*coros)
     pcs.clear()
+
+    # Unload all active Ollama models so memory is returned to the OS
+    unload_tasks = []
+    for session in sessions.values():
+        for model_name, svc in session.get("vlm_services", {}).items():
+            unload_tasks.append(_unload_ollama_model(svc.api_base, model_name))
+    if unload_tasks:
+        logger.info(f"Unloading {len(unload_tasks)} Ollama model(s) on shutdown…")
+        await asyncio.gather(*unload_tasks, return_exceptions=True)
+    sessions.clear()
 
     logger.info("Cleanup complete")
 
