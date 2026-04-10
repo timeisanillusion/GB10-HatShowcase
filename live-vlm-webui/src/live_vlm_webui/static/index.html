@@ -4296,17 +4296,21 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     const hatActive = data.is_hat_check_mode;
                     isHatCheckModeActive = !!hatActive;
 
+                    if (!yoloActive) {
+                        // YOLO was deselected — clear bounding boxes and canvas regardless
+                        // of whether LLMs are still running
+                        yoloDetectionResult = null;
+                        lastCoords = [];
+                        canvasNeedsUpdate = true;
+                    }
+
                     if (yoloActive) {
                         const label = hatActive ? 'YOLO Hat Check Active' : 'YOLO Object Detection Active';
                         updateStatus(label, 'connected');
                     } else if (data.llm_models && data.llm_models.length > 0) {
                         updateStatus(`LLM Active: ${data.llm_models.join(', ')}`, 'connected');
                     } else {
-                        // Nothing active — reset canvas
-                        yoloDetectionResult = null;
-                        lastCoords = [];
-                        canvasNeedsUpdate = true;
-                        videoOverlay.textContent = '';
+                        updateStatus('Connected', 'connected');
                     }
                     console.log('models_updated:', data);
                 } else if (data.type === 'model_updated') {
