@@ -66,28 +66,17 @@ class YoloDetectionBackend(DetectionBackend):
                 self.model.to("cpu")
                 logger.info(f"YOLO model loaded on CPU: {self.model_name}")
 
-    async def detect(self, image: Image.Image) -> DetectionResult:
+    def _detect_sync(self, img_array) -> DetectionResult:
         """
-        Detect objects in an image using YOLO.
-
-        Args:
-            image: PIL Image to analyze
-
-        Returns:
-            DetectionResult with boxes, labels, and confidences
+        Synchronous YOLO inference — runs in a thread-pool executor so it
+        never blocks the asyncio event loop.
         """
-        if self.model is None:
-            await self.initialize()
+        import numpy as np  # noqa: F401  (already imported at call site)
 
-        # Convert PIL Image to numpy for YOLO
-        import numpy as np
-        img_array = np.array(image)
-
-        # Run inference on CPU to avoid VRAM conflict with Ollama LLMs
         results = self.model(
             img_array,
-            conf=0.25,  # Confidence threshold
-            iou=0.45,   # IoU threshold
+            conf=0.25,
+            iou=0.45,
             device="cpu",
             verbose=False,
         )
@@ -98,7 +87,7 @@ class YoloDetectionBackend(DetectionBackend):
 
         if results and results[0].boxes is not None:
             for box, cls, conf in zip(
-                results[0].boxes.xyxy,  # xyxy format
+                results[0].boxes.xyxy,
                 results[0].boxes.cls,
                 results[0].boxes.conf,
             ):
@@ -106,7 +95,6 @@ class YoloDetectionBackend(DetectionBackend):
                 label = self.model.names[int(cls)]
                 confidence = conf.item()
 
-                # Convert to normalized 0-1000 scale: [ymin, xmin, ymax, xmax]
                 height, width = img_array.shape[:2]
                 ymin = int(min(y1, y2) / height * 1000)
                 xmin = int(min(x1, x2) / width * 1000)
@@ -114,18 +102,29 @@ class YoloDetectionBackend(DetectionBackend):
                 xmax = int(max(x1, x2) / width * 1000)
 
                 boxes.append([ymin, xmin, ymax, xmax])
-                # Normalize label for consistent frontend handling
                 label_lower = label.lower()
-                if "person" in label_lower:
-                    # For person detections, use "Person" as label
-                    # Hat detection requires custom training - for now just label as Person
-                    normalized_label = "Person"
-                else:
-                    normalized_label = label
+                normalized_label = "Person" if "person" in label_lower else label
                 labels.append(normalized_label)
                 confidences.append(confidence)
 
         return DetectionResult(boxes=boxes, labels=labels, confidences=confidences)
+
+    async def detect(self, image: Image.Image) -> DetectionResult:
+        """
+        Detect objects in an image using YOLO.
+
+        Inference is offloaded to a thread-pool executor so the asyncio event
+        loop is never blocked.  Blocking the loop even for ~200 ms causes the
+        WebRTC frame queue to fill up and produces multi-second video lag.
+        """
+        if self.model is None:
+            await self.initialize()
+
+        import numpy as np
+        img_array = np.array(image)
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._detect_sync, img_array)
 
     def get_model_info(self) -> Dict[str, Any]:
         """Return model information."""

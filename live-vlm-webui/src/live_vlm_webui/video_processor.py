@@ -48,8 +48,10 @@ class VideoProcessorTrack(VideoStreamTrack):
 
     # Class variable for frame processing interval (can be updated dynamically)
     process_every_n_frames = 30
-    # Max allowed latency before dropping frames (in seconds, 0 = disabled)
-    max_frame_latency = 0.0
+    # Max allowed latency before dropping frames (in seconds).
+    # 0.5 s keeps the video within half a second of live even if a brief stall
+    # occurs.  Set to 0.0 to disable (not recommended — lag will accumulate).
+    max_frame_latency = 0.5
 
     def __init__(self, track: VideoStreamTrack, vlm_service: VLMService = None, text_callback=None, detection_backend: Optional[DetectionBackend] = None, hat_check_mode: bool = False, vlm_services=None):
         super().__init__()
@@ -190,8 +192,9 @@ class VideoProcessorTrack(VideoStreamTrack):
                         # If PTS becomes unavailable, stop dropping frames
                         break
 
-                    # Prevent infinite loop
-                    if dropped_count > 100:
+                    # Safety limit — 600 frames = 20 s at 30 fps, enough to
+                    # drain any realistic backlog in a single recv() call.
+                    if dropped_count > 600:
                         logger.error(
                             f"Dropped {dropped_count} frames, but still behind. Resetting timing."
                         )
