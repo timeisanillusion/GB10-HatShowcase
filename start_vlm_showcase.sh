@@ -30,7 +30,8 @@ if [ -d "$REPO_DIR" ]; then
     # Auto-install package if missing (e.g. after fresh venv or git clone)
     if ! python -c "import live_vlm_webui" 2>/dev/null; then
         echo "📦 Package not installed — running pip install -e . ..."
-        pip install -e . --quiet
+        pip install --upgrade pip setuptools wheel
+        pip install -e . || { echo "❌ pip install failed — see errors above"; exit 1; }
     fi
 
     LOCAL_IP=$(hostname -I | awk '{print $1}')
