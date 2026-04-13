@@ -2555,14 +2555,62 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             <div class="result-card" id="vlmOutputCard">
                 <!-- Shared prompt display -->
                 <div class="result-prompt" id="currentPrompt" style="margin-bottom: 8px;"></div>
-                <!-- Running cost estimate -->
-                <div id="costEstimateBar" style="display:none; align-items:center; gap:8px; margin-bottom:10px; padding:6px 10px; background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:8px; font-size:12px; color:var(--text-secondary);">
-                    <i data-lucide="dollar-sign" style="width:13px;height:13px;flex-shrink:0;color:var(--accent-color);"></i>
-                    <span>Estimated cloud cost (GPT-4o rates):</span>
-                    <span id="costEstimateValue" style="font-weight:600;color:var(--text-primary);">$0.000000</span>
-                    <span id="costEstimateTokens" style="color:var(--text-muted);margin-left:4px;"></span>
-                    <span style="margin-left:auto;color:var(--text-muted);font-size:11px;cursor:help;border-bottom:1px dotted var(--text-muted);"
-                          title="GPT-4o list prices used as a cloud reference point.&#10;&#10;$2.50 per 1M input tokens — the image + prompt sent to the model each frame.&#10;$10.00 per 1M output tokens — the description the model writes back (4× more expensive because generating text is heavier than reading it).&#10;&#10;Your GB10 runs these locally at $0 — this shows what the same traffic would cost on a cloud API.">$2.50/1M in · $10/1M out</span>
+                <!-- Running cost estimate + Projected Cost panel -->
+                <div id="costEstimateBar" style="display:none; flex-direction:column; margin-bottom:10px; border:1px solid var(--border-color); border-radius:8px; overflow:hidden; font-size:12px;">
+
+                    <!-- Always-visible summary row -->
+                    <div id="costSummaryRow" style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-tertiary); cursor:pointer; user-select:none;"
+                         onclick="toggleCostProjector()">
+                        <i data-lucide="dollar-sign" style="width:13px;height:13px;flex-shrink:0;color:var(--accent-color);"></i>
+                        <span style="color:var(--text-secondary);">Estimated cloud cost (GPT-4o rates):</span>
+                        <span id="costEstimateValue" style="font-weight:600;color:var(--text-primary);">$0.000000</span>
+                        <span id="costEstimateTokens" style="color:var(--text-muted);margin-left:2px;"></span>
+                        <span style="color:var(--text-muted);font-size:11px;cursor:help;border-bottom:1px dotted var(--text-muted);"
+                              title="GPT-4o list prices used as a cloud reference point.&#10;&#10;$2.50 per 1M input tokens — the image + prompt sent to the model each frame.&#10;$10.00 per 1M output tokens — the description the model writes back (4× more expensive because generating text is heavier than reading it).&#10;&#10;Your GB10 runs these locally at $0 — this shows what the same traffic would cost on a cloud API.">$2.50/1M in · $10/1M out</span>
+                        <span style="margin-left:auto;display:flex;align-items:center;gap:4px;color:var(--text-muted);font-size:11px;">
+                            <span id="costProjectorLabel">Cost Projector</span>
+                            <i id="costProjectorChevron" data-lucide="chevron-right" style="width:13px;height:13px;transition:transform 0.2s;"></i>
+                        </span>
+                    </div>
+
+                    <!-- Expandable projector panel -->
+                    <div id="costProjectorPanel" style="display:none; padding:10px 12px 12px; background:var(--bg-secondary); border-top:1px solid var(--border-color); color:var(--text-secondary);">
+                        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:10px;">
+                            Projected Cloud Cost
+                        </div>
+
+                        <!-- Inputs row -->
+                        <div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--text-muted);">
+                                Number of Cameras
+                                <input type="number" id="projCameras" value="1" min="1" max="10000" step="1"
+                                       style="width:90px;padding:4px 6px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:12px;"/>
+                            </label>
+                            <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--text-muted);">
+                                Time Period (Days)
+                                <input type="number" id="projDays" value="30" min="1" max="3650" step="1"
+                                       style="width:90px;padding:4px 6px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:12px;"/>
+                            </label>
+                        </div>
+
+                        <!-- Rate + projection output -->
+                        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
+                            <div style="font-size:11px;color:var(--text-muted);">
+                                Cost rate
+                                <div id="projRate" style="font-size:13px;font-weight:600;color:var(--text-primary);margin-top:2px;">—</div>
+                                <div id="projRateBasis" style="font-size:10px;color:var(--text-muted);margin-top:1px;"></div>
+                            </div>
+                            <div style="font-size:11px;color:var(--text-muted);">
+                                Projected total
+                                <div id="projTotal" style="font-size:18px;font-weight:700;color:var(--accent-color);margin-top:2px;">—</div>
+                                <div id="projBreakdown" style="font-size:10px;color:var(--text-muted);margin-top:1px;"></div>
+                            </div>
+                        </div>
+
+                        <div style="font-size:10px;color:var(--text-muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border-color);">
+                            Projection = avg cost/min (last 60 s) × 60 × 24 × days × cameras · GPT-4o list prices · GB10 runs at $0
+                        </div>
+                    </div>
                 </div>
                 <!-- YOLO status banner (shown only when YOLO is active without LLMs) -->
                 <div id="yoloStatusBanner" style="display:none; padding:10px 0; color:var(--text-muted); font-size:13px;">
@@ -3382,6 +3430,100 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             toggle.classList.toggle('collapsed');
         }
 
+        // ── Cost Projector ──────────────────────────────────────────────────
+        // Rolling window of {ts (ms), cost ($)} entries over the last 60 seconds.
+        let costRateWindow = [];
+        let lastKnownCost = 0;
+
+        function toggleCostProjector() {
+            const panel   = document.getElementById('costProjectorPanel');
+            const chevron = document.getElementById('costProjectorChevron');
+            const open = panel.style.display === 'none' || panel.style.display === '';
+            panel.style.display = open ? 'block' : 'none';
+            if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
+            // Recalculate projection immediately on open so the numbers aren't stale
+            if (open) updateCostProjection(lastKnownCost);
+        }
+
+        function updateCostRateWindow(cost) {
+            const now = Date.now();
+            costRateWindow.push({ ts: now, cost: cost });
+            // Prune entries older than 60 seconds
+            const cutoff = now - 60000;
+            costRateWindow = costRateWindow.filter(e => e.ts >= cutoff);
+        }
+
+        function computeCostRatePerMin() {
+            if (costRateWindow.length < 2) return null;
+            const oldest = costRateWindow[0];
+            const newest = costRateWindow[costRateWindow.length - 1];
+            const elapsedMin = (newest.ts - oldest.ts) / 60000;
+            if (elapsedMin < 0.001) return null;  // avoid division by near-zero
+            return (newest.cost - oldest.cost) / elapsedMin;
+        }
+
+        function updateCostProjection(cost) {
+            lastKnownCost = cost;
+            updateCostRateWindow(cost);
+
+            const panel = document.getElementById('costProjectorPanel');
+            if (!panel || panel.style.display === 'none' || panel.style.display === '') return;
+
+            const cameras = Math.max(1, parseInt(document.getElementById('projCameras')?.value || '1', 10));
+            const days    = Math.max(1, parseInt(document.getElementById('projDays')?.value    || '30', 10));
+
+            const ratePerMin  = computeCostRatePerMin();
+            const rateEl      = document.getElementById('projRate');
+            const rateBasisEl = document.getElementById('projRateBasis');
+            const totalEl     = document.getElementById('projTotal');
+            const breakdownEl = document.getElementById('projBreakdown');
+
+            if (ratePerMin === null || ratePerMin <= 0) {
+                if (rateEl)      rateEl.textContent      = '—';
+                if (rateBasisEl) rateBasisEl.textContent  = 'Accumulating data…';
+                if (totalEl)     totalEl.textContent      = '—';
+                if (breakdownEl) breakdownEl.textContent  = '';
+                return;
+            }
+
+            // Rate display
+            const windowSec = Math.round((costRateWindow[costRateWindow.length - 1].ts - costRateWindow[0].ts) / 1000);
+            const rateStr = ratePerMin < 0.001
+                ? '$' + (ratePerMin * 1000).toFixed(4) + ' /1000 min'
+                : '$' + ratePerMin.toFixed(6) + ' /min';
+            const numLLMsForBasis = [...(typeof selectedModels !== 'undefined' ? selectedModels : new Set())]
+                .filter(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase())).length;
+            const llmBasisNote = numLLMsForBasis > 1 ? ` · ${numLLMsForBasis} LLMs combined` : ' · 1 LLM';
+            if (rateEl)      rateEl.textContent     = rateStr;
+            if (rateBasisEl) rateBasisEl.textContent = `avg over last ${windowSec}s · 1 camera${llmBasisNote}`;
+
+            // Projection: rate/min × 60 × 24 × days × cameras
+            // Count active LLM models (for display only — ratePerMin already includes all LLMs)
+            const numLLMs = [...(typeof selectedModels !== 'undefined' ? selectedModels : new Set())]
+                .filter(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase())).length;
+            // Projection: ratePerMin already reflects all active LLMs on 1 camera.
+            // Scale to N cameras × D days.
+            const projected   = ratePerMin * 60 * 24 * days * cameras;
+            const perCamDay   = ratePerMin * 60 * 24;
+
+            if (totalEl) {
+                totalEl.textContent = projected < 0.01
+                    ? '$' + projected.toFixed(6)
+                    : projected < 1
+                    ? '$' + projected.toFixed(4)
+                    : projected < 1000
+                    ? '$' + projected.toFixed(2)
+                    : '$' + projected.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            }
+            if (breakdownEl) {
+                const perCamDayStr = perCamDay < 0.001
+                    ? '$' + (perCamDay * 1000).toFixed(4) + '/1000 cam-days'
+                    : '$' + perCamDay.toFixed(4) + '/cam/day';
+                const llmNote = numLLMs > 0 ? ` · ${numLLMs} LLM${numLLMs !== 1 ? 's' : ''} active` : '';
+                breakdownEl.textContent = `${cameras} cam${cameras !== 1 ? 's' : ''} × ${days} day${days !== 1 ? 's' : ''} · ${perCamDayStr}${llmNote}`;
+            }
+        }
+
         // Fullscreen Toggle
         function toggleFullscreen() {
             const videoCard = document.getElementById('videoCard');
@@ -3859,6 +4001,12 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             }
         });
 
+        // Cost Projector input listeners — recalculate when user changes cameras or days
+        const projCamerasEl = document.getElementById('projCameras');
+        const projDaysEl    = document.getElementById('projDays');
+        if (projCamerasEl) projCamerasEl.addEventListener('input', () => updateCostProjection(lastKnownCost));
+        if (projDaysEl)    projDaysEl.addEventListener('input',   () => updateCostProjection(lastKnownCost));
+
         // Debug payload toggles (Settings modal): send set_debug so server includes request/response payload in vlm_response
         function sendDebugFlags() {
             if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
@@ -4225,6 +4373,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                                 lucide.createIcons({ nodes: [bar] });
                                 bar._iconsCreated = true;
                             }
+                            // Update cost projector rolling window + recalculate
+                            updateCostProjection(cost);
                         }
                     }
 
