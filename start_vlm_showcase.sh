@@ -1,18 +1,33 @@
 #!/bin/bash
 # --- UNIVERSAL DELL GB10 VLM SHOWCASE ---
 
-# 1. ZOMBIE CLEANUP (Blackwell Reset)
+# 1. ENVIRONMENT — set critical variables explicitly so the script works
+#    correctly whether called directly, via sudo, or via passwordless visudo.
+#    sudo strips the environment by default; relying on inherited vars is fragile.
+
+# Resolve the real user's home directory.
+# When called via sudo, $SUDO_USER holds the original username; fall back to $USER.
+REAL_USER="${SUDO_USER:-$USER}"
+export HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+
+# Ollama tuning — must be set in the server process's environment.
+# OLLAMA_MAX_LOADED_MODELS=2  keeps both LLMs resident (prevents 21s reload cycles).
+# OLLAMA_CONTEXT_LENGTH=8192  prevents CUDA_POOL_VMM_MAX_SIZE assertion failures.
+export OLLAMA_MAX_LOADED_MODELS=2
+export OLLAMA_CONTEXT_LENGTH=8192
+
+# 2. ZOMBIE CLEANUP (Blackwell Reset)
 echo "Resetting Blackwell GPU memory..."
 sudo pkill -9 ollama_llama_server 2>/dev/null
 sleep 1
 
-# 2. DYNAMIC PATHS
+# 3. DYNAMIC PATHS
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR"
 REPO_DIR="$PROJECT_ROOT/live-vlm-webui"
 VENV_PATH="$REPO_DIR/venv"
 
-# 3. CHOOSE YOUR ENGINE
+# 4. CHOOSE YOUR ENGINE
 # Set this to "qwen2.5vl:7b" for near real-time (recommended)
 # Set this to "qwen-72b-slim" for high-accuracy flex
 MODEL="qwen2.5vl:72b"
@@ -20,7 +35,7 @@ MODEL="qwen2.5vl:72b"
 echo "Pre-loading $MODEL into Blackwell memory..."
 curl -s -X POST http://127.0.0.1:11434/api/generate -d "{\"model\": \"$MODEL\", \"keep_alive\": \"1h\"}" > /dev/null
 
-# 4. LAUNCH WEBUI
+# 5. LAUNCH WEBUI
 if [ -d "$REPO_DIR" ]; then
     cd "$REPO_DIR"
     
