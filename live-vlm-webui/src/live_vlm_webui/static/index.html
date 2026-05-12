@@ -4126,6 +4126,12 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 // Filter out YOLO entries (already shown statically above)
                 const llmModels = (data.models || []).filter(m => !['YOLO','YOLO_HAT'].includes((m.id || '').toUpperCase()));
 
+                // Auto-select the server's current/default model on first load
+                if (!modelDropdownInitialized) {
+                    const currentModel = llmModels.find(m => m.current);
+                    if (currentModel) selectedModels.add(currentModel.id);
+                }
+
                 llmBox.innerHTML = '';
                 if (llmModels.length === 0) {
                     llmBox.innerHTML = '<span style="color:var(--text-muted);font-size:12px;padding:4px 0;display:block;">No LLM models found</span>';

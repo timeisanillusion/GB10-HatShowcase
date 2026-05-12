@@ -30,7 +30,7 @@ VENV_PATH="$REPO_DIR/venv"
 # 4. CHOOSE YOUR ENGINE
 # Set this to "qwen2.5vl:7b" for near real-time (recommended)
 # Set this to "qwen-72b-slim" for high-accuracy flex
-MODEL="qwen2.5vl:72b"
+MODEL="qwen2.5vl:7b"
 
 echo "Pre-loading $MODEL into Blackwell memory..."
 curl -s -X POST http://127.0.0.1:11434/api/generate -d "{\"model\": \"$MODEL\", \"keep_alive\": \"1h\"}" > /dev/null
