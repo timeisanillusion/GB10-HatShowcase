@@ -2382,6 +2382,24 @@ limitations under the License.
                     </div>
 
                     <div class="settings-section">
+                        <div class="settings-section-title">Cloud Cost Rates</div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">
+                            $ per 1M tokens — edit to match current provider pricing. Changes apply immediately.
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 80px 80px;gap:4px 8px;font-size:12px;align-items:center;">
+                            <div style="font-weight:600;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;">Provider</div>
+                            <div style="font-weight:600;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;">Input</div>
+                            <div style="font-weight:600;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;">Output</div>
+                        </div>
+                        <div id="costRatesGrid" style="display:grid;grid-template-columns:1fr 80px 80px;gap:4px 8px;font-size:12px;align-items:center;margin-top:4px;">
+                        </div>
+                        <div style="margin-top:8px;">
+                            <button id="resetCostRates" style="font-size:11px;padding:3px 8px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-muted);cursor:pointer;">Reset to defaults</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
                         <div class="settings-section-title">Debug</div>
 
                         <div class="settings-item">
@@ -3608,10 +3626,64 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             'gemini-2.5-flash':  { label: 'Gemini 2.5 Flash',  input: 0.15,  output: 3.50  },
         };
 
+        const DEFAULT_CLOUD_RATES = Object.fromEntries(
+            Object.entries(CLOUD_PROVIDERS).map(([k, v]) => [k, { input: v.input, output: v.output }])
+        );
+
         function getSelectedProvider() {
             const sel = document.getElementById('projProvider');
             const key = sel ? sel.value : 'gpt-4o';
             return CLOUD_PROVIDERS[key] || CLOUD_PROVIDERS['gpt-4o'];
+        }
+
+        function buildCostRatesGrid() {
+            const grid = document.getElementById('costRatesGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            const inputStyle = 'width:100%;padding:4px 6px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);font-size:12px;text-align:right;';
+            for (const [key, prov] of Object.entries(CLOUD_PROVIDERS)) {
+                const label = document.createElement('div');
+                label.style.cssText = 'color:var(--text-primary);padding:2px 0;';
+                label.textContent = prov.label;
+
+                const inpIn = document.createElement('input');
+                inpIn.type = 'number'; inpIn.min = '0'; inpIn.step = '0.01';
+                inpIn.style.cssText = inputStyle;
+                inpIn.value = prov.input;
+                inpIn.dataset.provider = key; inpIn.dataset.field = 'input';
+                inpIn.addEventListener('input', onCostRateEdit);
+
+                const inpOut = document.createElement('input');
+                inpOut.type = 'number'; inpOut.min = '0'; inpOut.step = '0.01';
+                inpOut.style.cssText = inputStyle;
+                inpOut.value = prov.output;
+                inpOut.dataset.provider = key; inpOut.dataset.field = 'output';
+                inpOut.addEventListener('input', onCostRateEdit);
+
+                grid.appendChild(label);
+                grid.appendChild(inpIn);
+                grid.appendChild(inpOut);
+            }
+        }
+
+        function onCostRateEdit(e) {
+            const key = e.target.dataset.provider;
+            const field = e.target.dataset.field;
+            const val = parseFloat(e.target.value);
+            if (isNaN(val) || val < 0) return;
+            CLOUD_PROVIDERS[key][field] = val;
+            updateCostSummaryLabels();
+            recalcCostDisplay();
+        }
+
+        function resetCostRates() {
+            for (const [key, defaults] of Object.entries(DEFAULT_CLOUD_RATES)) {
+                CLOUD_PROVIDERS[key].input = defaults.input;
+                CLOUD_PROVIDERS[key].output = defaults.output;
+            }
+            buildCostRatesGrid();
+            updateCostSummaryLabels();
+            recalcCostDisplay();
         }
 
         // Last-known raw token totals so we can recalculate cost when provider changes
@@ -4338,6 +4410,11 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 }));
             }
         });
+
+        // Build the editable cost rates grid in Settings and wire up reset
+        buildCostRatesGrid();
+        const resetCostRatesBtn = document.getElementById('resetCostRates');
+        if (resetCostRatesBtn) resetCostRatesBtn.addEventListener('click', resetCostRates);
 
         // Cost Projector input listeners — recalculate when user changes provider, cameras, or days
         const projProviderEl = document.getElementById('projProvider');
