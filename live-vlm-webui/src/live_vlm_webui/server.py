@@ -455,22 +455,33 @@ async def models(request):
         models_list.append({"id": "YOLO",     "name": "YOLO (Object Detection)", "current": False, "image_compatible": True})
         models_list.append({"id": "YOLO_HAT", "name": "YOLO (Hat Check)",        "current": False, "image_compatible": True})
 
+        default_svc = get_or_create_session("default")["vlm_service"]
+        default_model = default_svc.model or ""
+
+        def _models_match(a: str, b: str) -> bool:
+            """Compare model names, ignoring ':latest' suffix."""
+            a = a.strip().removesuffix(":latest")
+            b = b.strip().removesuffix(":latest")
+            return a == b
+
         if api_base:
             from openai import AsyncOpenAI
             temp_client = AsyncOpenAI(base_url=api_base, api_key=api_key if api_key else "EMPTY")
             models_response = await temp_client.models.list()
             for model in models_response.data:
                 if _is_vision_model(model.id):
-                    models_list.append({"id": model.id, "name": model.id, "current": False, "image_compatible": True})
+                    models_list.append({
+                        "id": model.id, "name": model.id,
+                        "current": _models_match(model.id, default_model),
+                        "image_compatible": True,
+                    })
         else:
-            default_svc = get_or_create_session("default")["vlm_service"]
             models_response = await default_svc.client.models.list()
             for model in models_response.data:
                 if _is_vision_model(model.id):
                     models_list.append({
-                        "id": model.id,
-                        "name": model.id,
-                        "current": model.id == default_svc.model,
+                        "id": model.id, "name": model.id,
+                        "current": _models_match(model.id, default_model),
                         "image_compatible": True,
                     })
 
