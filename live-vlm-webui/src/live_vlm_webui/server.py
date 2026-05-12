@@ -1446,6 +1446,16 @@ async def create_app(test_mode=False):
     else:
         logger.warning(f"⚠️  Favicon directory not found: {favicon_dir}")
 
+    # Serve vendored JS libraries (lucide, marked, dompurify) for offline use
+    vendor_dir = os.path.join(os.path.dirname(__file__), "static", "vendor")
+    vendor_dir = os.path.abspath(vendor_dir)
+
+    if os.path.exists(vendor_dir):
+        app.router.add_static("/vendor", vendor_dir, name="vendor")
+        logger.info(f"Serving vendor JS from: {vendor_dir}")
+    else:
+        logger.warning(f"⚠️  Vendor directory not found: {vendor_dir}")
+
     if not test_mode:
         app.on_startup.append(on_startup)
         app.on_shutdown.append(on_shutdown)
