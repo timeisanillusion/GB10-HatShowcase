@@ -3926,9 +3926,10 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         cb.addEventListener('change', () => onModelCheckboxChange(cb));
 
                         // Tooltip: show on row hover, hide on mouse leave
+                        // Wrap in arrow functions so the tooltip helpers (defined later in the script) are resolved at call time, not at registration time.
                         label.addEventListener('mouseenter', (e) => showModelTooltip(e, label, id, model.model_info));
-                        label.addEventListener('mouseleave', hideModelTooltip);
-                        label.addEventListener('mousemove', positionModelTooltip);
+                        label.addEventListener('mouseleave', () => hideModelTooltip());
+                        label.addEventListener('mousemove', (e) => positionModelTooltip(e));
 
                         llmBox.appendChild(label);
                     });
