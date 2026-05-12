@@ -376,22 +376,25 @@ class NVMLMonitor(GPUMonitor):
             gpu_percent = utilization.gpu
 
             # Get memory info (may not be supported on newer GPUs like GB10/Blackwell)
+            vram_not_supported = False
             try:
                 memory_info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
                 vram_used_gb = memory_info.used / (1024**3)
                 vram_total_gb = memory_info.total / (1024**3)
                 vram_percent = (memory_info.used / memory_info.total) * 100
             except Exception as e:
-                # GB10/Blackwell and some newer GPUs don't support memory queries
+                # GB10/Blackwell and some newer GPUs use unified memory —
+                # NVML memory queries are not supported on these architectures.
                 if "Not Supported" in str(e) or "not supported" in str(e).lower():
                     if not self.vram_warning_logged:
                         logger.warning(
-                            f"VRAM monitoring not supported on {self.device_name} (GB10/Blackwell limitation)"
+                            f"VRAM monitoring not supported on {self.device_name} (GB10/Blackwell unified memory)"
                         )
                         self.vram_warning_logged = True
                     vram_used_gb = None
                     vram_total_gb = None
                     vram_percent = None
+                    vram_not_supported = True
                 else:
                     raise
 
@@ -420,6 +423,7 @@ class NVMLMonitor(GPUMonitor):
                 "vram_used_gb": vram_used_gb,
                 "vram_total_gb": vram_total_gb,
                 "vram_percent": vram_percent,
+                "vram_not_supported": vram_not_supported,
                 "temp_c": temp,
                 "power_w": power_w,
                 "product_name": self.product_name,  # DGX Spark, Dell/HP/branded PC, or motherboard name

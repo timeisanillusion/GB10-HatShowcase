@@ -401,6 +401,46 @@ def _is_vision_model(model_id: str) -> bool:
     return any(kw in lower for kw in _VISION_KEYWORDS)
 
 
+async def _fetch_ollama_model_details(api_base: str) -> dict:
+    """
+    Fetch detailed model info from Ollama's native /api/tags endpoint.
+    Returns a dict keyed by model name with size, quantization, family, etc.
+    Falls back to empty dict on any error.
+    """
+    try:
+        ollama_base = api_base.rstrip("/")
+        if ollama_base.endswith("/v1"):
+            ollama_base = ollama_base[:-3]
+        url = f"{ollama_base}/api/tags"
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return {}
+                data = await resp.json()
+        details = {}
+        for m in data.get("models", []):
+            name = m.get("name", "")
+            raw_size = m.get("size", 0)
+            size_gb = round(raw_size / 1_073_741_824, 1) if raw_size else None
+            d = m.get("details", {})
+            details[name] = {
+                "size_gb": size_gb,
+                "parameter_size": d.get("parameter_size"),
+                "quantization": d.get("quantization_level"),
+                "family": d.get("family"),
+                "families": d.get("families"),
+                "format": d.get("format"),
+            }
+        return details
+    except Exception as e:
+        logger.debug(f"Could not fetch Ollama model details: {e}")
+        return {}
+
+
+def _is_ollama_base(api_base: str) -> bool:
+    return "11434" in api_base or "ollama" in api_base.lower()
+
+
 async def models(request):
     """Return available models from the VLM API, filtered to vision-capable models only."""
     try:
@@ -415,24 +455,37 @@ async def models(request):
         models_list.append({"id": "YOLO",     "name": "YOLO (Object Detection)", "current": False, "image_compatible": True})
         models_list.append({"id": "YOLO_HAT", "name": "YOLO (Hat Check)",        "current": False, "image_compatible": True})
 
+        effective_base = api_base or get_or_create_session("default")["vlm_service"].api_base
+
+        # Fetch Ollama detailed metadata in parallel if the backend is Ollama
+        ollama_details: dict = {}
+        if _is_ollama_base(effective_base):
+            ollama_details = await _fetch_ollama_model_details(effective_base)
+
         if api_base:
             from openai import AsyncOpenAI
             temp_client = AsyncOpenAI(base_url=api_base, api_key=api_key if api_key else "EMPTY")
             models_response = await temp_client.models.list()
             for model in models_response.data:
                 if _is_vision_model(model.id):
-                    models_list.append({"id": model.id, "name": model.id, "current": False, "image_compatible": True})
+                    entry = {"id": model.id, "name": model.id, "current": False, "image_compatible": True}
+                    if model.id in ollama_details:
+                        entry["model_info"] = ollama_details[model.id]
+                    models_list.append(entry)
         else:
             default_svc = get_or_create_session("default")["vlm_service"]
             models_response = await default_svc.client.models.list()
             for model in models_response.data:
                 if _is_vision_model(model.id):
-                    models_list.append({
+                    entry = {
                         "id": model.id,
                         "name": model.id,
                         "current": model.id == default_svc.model,
                         "image_compatible": True,
-                    })
+                    }
+                    if model.id in ollama_details:
+                        entry["model_info"] = ollama_details[model.id]
+                    models_list.append(entry)
 
         return web.Response(
             content_type="application/json", text=json.dumps({"models": models_list})

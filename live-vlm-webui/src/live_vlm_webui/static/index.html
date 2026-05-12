@@ -814,8 +814,54 @@ limitations under the License.
         }
 
         .video-overlay.show {
-            display: block;
+            display: flex;
+            flex-direction: row;
+            gap: 0;
         }
+
+        /* Multi-model columns inside the video overlay */
+        .overlay-model-col {
+            flex: 1;
+            min-width: 0;
+            padding: 0 12px;
+        }
+        .overlay-model-col + .overlay-model-col {
+            border-left: 1px solid rgba(255,255,255,0.2);
+        }
+        .overlay-model-col:first-child { padding-left: 0; }
+        .overlay-model-col:last-child  { padding-right: 0; }
+        .overlay-model-name {
+            font-size: 11px;
+            font-weight: 600;
+            color: #76B900;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .overlay-model-text {
+            font-size: 15px;
+            line-height: 1.5;
+            font-weight: 500;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+        }
+        /* Same column layout for the fullscreen overlay */
+        .fullscreen-vlm-overlay .overlay-models-row {
+            display: flex;
+            gap: 0;
+        }
+        .fullscreen-vlm-overlay .overlay-model-col {
+            flex: 1;
+            min-width: 0;
+            padding: 0 12px;
+        }
+        .fullscreen-vlm-overlay .overlay-model-col + .overlay-model-col {
+            border-left: 1px solid rgba(255,255,255,0.2);
+        }
+        .fullscreen-vlm-overlay .overlay-model-col:first-child { padding-left: 0; }
+        .fullscreen-vlm-overlay .overlay-model-col:last-child  { padding-right: 0; }
 
         video.mirrored {
             transform: scaleX(-1);
@@ -1896,6 +1942,84 @@ limitations under the License.
         .badge-yolo   { background: rgba(59,130,246,0.2);  color: #60a5fa; }
         .badge-llm    { background: rgba(118,185,0,0.2);   color: var(--accent-color); }
         .badge-active { background: var(--accent-color);   color: #000; }
+
+        /* ── Model info tooltip ───────────────────────────────────────── */
+        .model-info-btn {
+            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: default;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .model-checkbox-row:hover .model-info-btn {
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+        }
+        /* Tooltip card — absolutely positioned, shown via JS */
+        .model-tooltip {
+            position: fixed;
+            z-index: 9999;
+            min-width: 210px;
+            max-width: 280px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px 14px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.15s, transform 0.15s;
+        }
+        .model-tooltip.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .model-tooltip-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+        .model-tooltip-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 11px;
+            padding: 3px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .model-tooltip-row:last-child { border-bottom: none; }
+        .model-tooltip-key {
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .model-tooltip-val {
+            color: var(--text-primary);
+            font-weight: 500;
+            text-align: right;
+            word-break: break-all;
+        }
+        .model-tooltip-val.highlight {
+            color: var(--accent-color);
+        }
+        .model-tooltip-note {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 8px;
+            font-style: italic;
+        }
 
         /* ── Dual LLM output panels ───────────────────────────────────── */
         .llm-output-container {
@@ -3162,11 +3286,6 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
                 updateLLMPanelText(safeId, text);
 
-                // Update overlay with the first model's text
-                if (responses.indexOf(state) === 0) {
-                    videoOverlay.textContent = text;
-                }
-
                 // Update metrics
                 const metricsEl = document.getElementById('llmMetrics-' + safeId);
                 if (metricsEl && state.metrics) {
@@ -3191,6 +3310,42 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     }
                 }
             });
+
+            // Rebuild both overlays with all active model outputs
+            rebuildVideoOverlay();
+            const videoCard = document.getElementById('videoCard');
+            if (videoCard && videoCard.classList.contains('fullscreen')) syncVlmToFullscreen();
+        }
+
+        /**
+         * Build HTML for one overlay column (used in both the video overlay and
+         * the fullscreen overlay).  `modelName` is shown as a header when there
+         * are multiple models; omit it for single-model layouts.
+         */
+        function buildOverlayColHTML(modelName, text, showName) {
+            const nameHTML = showName
+                ? `<div class="overlay-model-name">${modelName}</div>`
+                : '';
+            return `<div class="overlay-model-col">${nameHTML}<div class="overlay-model-text">${text || ''}</div></div>`;
+        }
+
+        /**
+         * Rebuild #videoOverlay (the top/bottom camera-view overlay) to show one
+         * column per active LLM panel side-by-side.
+         */
+        function rebuildVideoOverlay() {
+            const panels = document.querySelectorAll('.llm-panel');
+            if (!panels.length) { videoOverlay.innerHTML = ''; return; }
+
+            const showNames = panels.length > 1;
+            let html = '';
+            panels.forEach(panel => {
+                const contentEl = panel.querySelector('[id^="llmContent-"]');
+                // Use rendered innerHTML so markdown formatting is preserved
+                const text = contentEl ? (contentEl.innerHTML || '') : '';
+                html += buildOverlayColHTML(panel.dataset.model, text, showNames);
+            });
+            videoOverlay.innerHTML = html;
         }
 
         // Enumerate cameras on page load
@@ -3542,23 +3697,38 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             lucide.createIcons();
         }
 
-        // Sync VLM output to fullscreen overlay
+        // Sync VLM output to fullscreen overlay — shows all active models side-by-side
         function syncVlmToFullscreen() {
             const fullscreenVlmContent = document.getElementById('fullscreenVlmContent');
             const fullscreenVlmMetrics = document.getElementById('fullscreenVlmMetrics');
+            if (!fullscreenVlmContent) return;
 
-            // Collect text from all active LLM panels
             const panels = document.querySelectorAll('.llm-panel');
-            if (panels.length > 0 && fullscreenVlmContent) {
-                // Show first panel's content in fullscreen (space is limited)
-                const firstContent = panels[0].querySelector('[id^="llmContent-"]');
-                fullscreenVlmContent.innerHTML = firstContent ? (firstContent.innerHTML || 'Ready') : 'Ready';
-                // Show metrics from first panel
-                const firstMetrics = panels[0].querySelector('[id^="llmMetrics-"]');
-                if (firstMetrics && fullscreenVlmMetrics) {
-                    fullscreenVlmMetrics.innerHTML = firstMetrics.textContent
-                        ? `<span>${firstMetrics.textContent}</span>` : '';
+            if (!panels.length) {
+                fullscreenVlmContent.innerHTML = 'Ready';
+                if (fullscreenVlmMetrics) fullscreenVlmMetrics.innerHTML = '';
+                return;
+            }
+
+            const showNames = panels.length > 1;
+            let colsHTML = '';
+            const metricParts = [];
+            panels.forEach(panel => {
+                const contentEl = panel.querySelector('[id^="llmContent-"]');
+                const metricsEl = panel.querySelector('[id^="llmMetrics-"]');
+                const text = contentEl ? (contentEl.innerHTML || '') : '';
+                colsHTML += buildOverlayColHTML(panel.dataset.model, text, showNames);
+                if (metricsEl && metricsEl.textContent.trim()) {
+                    const label = showNames ? `${panel.dataset.model}: ` : '';
+                    metricParts.push(`${label}${metricsEl.textContent.trim()}`);
                 }
+            });
+
+            fullscreenVlmContent.innerHTML = `<div class="overlay-models-row">${colsHTML}</div>`;
+            if (fullscreenVlmMetrics) {
+                fullscreenVlmMetrics.innerHTML = metricParts.length
+                    ? metricParts.map(m => `<span>${m}</span>`).join('')
+                    : '';
             }
         }
 
@@ -3741,12 +3911,25 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         label.dataset.model = id;
                         const isChecked = selectedModels.has(id);
                         if (isChecked) label.classList.add('checked');
+
+                        // Store model_info as JSON on the element for tooltip use
+                        if (model.model_info) {
+                            label.dataset.modelInfo = JSON.stringify(model.model_info);
+                        }
+
                         label.innerHTML = `
                             <input type="checkbox" name="modelCheckbox" value="${id}" ${isChecked ? 'checked' : ''}>
                             <span class="model-checkbox-badge badge-llm">LLM</span>
-                            <span class="model-checkbox-label" title="${id}">${model.name || id}</span>`;
+                            <span class="model-checkbox-label" title="${id}">${model.name || id}</span>
+                            <span class="model-info-btn" aria-label="Model info">i</span>`;
                         const cb = label.querySelector('input');
                         cb.addEventListener('change', () => onModelCheckboxChange(cb));
+
+                        // Tooltip: show on row hover, hide on mouse leave
+                        label.addEventListener('mouseenter', (e) => showModelTooltip(e, label, id, model.model_info));
+                        label.addEventListener('mouseleave', hideModelTooltip);
+                        label.addEventListener('mousemove', positionModelTooltip);
+
                         llmBox.appendChild(label);
                     });
                 }
@@ -4245,21 +4428,33 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 gpuBar.style.background = '#4CAF50';  // Green
             }
 
-            // VRAM (Purple)
+            // VRAM (Purple) — hidden on unified-memory architectures (GB10/Blackwell)
             const vramUsed = stats.vram_used_gb;
             const vramTotal = stats.vram_total_gb;
             const vramPercent = stats.vram_percent;
-            if (vramUsed === null || vramUsed === undefined || vramTotal === null || vramTotal === undefined) {
-                // VRAM unavailable (e.g., GB10/Blackwell GPUs)
-                document.getElementById('vramUsage').textContent = 'N/A';
-                const vramBar = document.getElementById('vramBar');
-                vramBar.style.width = '0%';
-                vramBar.style.background = '#666';  // Gray for unavailable
+            const vramNotSupported = stats.vram_not_supported === true;
+            const vramCard = document.getElementById('vramUsage')?.closest('.stat-card');
+            const ramLabel = document.querySelector('#ramUsage')?.closest('.stat-card')?.querySelector('.stat-label');
+
+            if (vramNotSupported) {
+                // Hide VRAM card entirely and rename System RAM → Memory Pool
+                if (vramCard) vramCard.style.display = 'none';
+                if (ramLabel) ramLabel.textContent = 'Memory Pool';
             } else {
-                document.getElementById('vramUsage').innerHTML = `${vramUsed.toFixed(1)}<span class="stat-value-denominator">/${vramTotal.toFixed(1)} GB</span>`;
-                const vramBar = document.getElementById('vramBar');
-                vramBar.style.width = `${vramPercent}%`;
-                vramBar.style.background = '#9C27B0';  // Purple
+                if (vramCard) vramCard.style.display = '';
+                if (ramLabel && ramLabel.textContent === 'Memory Pool') ramLabel.textContent = 'System RAM';
+
+                if (vramUsed === null || vramUsed === undefined || vramTotal === null || vramTotal === undefined) {
+                    document.getElementById('vramUsage').textContent = 'N/A';
+                    const vramBar = document.getElementById('vramBar');
+                    vramBar.style.width = '0%';
+                    vramBar.style.background = '#666';
+                } else {
+                    document.getElementById('vramUsage').innerHTML = `${vramUsed.toFixed(1)}<span class="stat-value-denominator">/${vramTotal.toFixed(1)} GB</span>`;
+                    const vramBar = document.getElementById('vramBar');
+                    vramBar.style.width = `${vramPercent}%`;
+                    vramBar.style.background = '#9C27B0';  // Purple
+                }
             }
 
             // CPU (Blue)
@@ -4269,7 +4464,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             cpuBar.style.width = `${cpuPercent}%`;
             cpuBar.style.background = '#2196F3';  // Blue
 
-            // RAM (Orange)
+            // RAM / Memory Pool (Orange)
             const ramUsed = stats.ram_used_gb || 0;
             const ramTotal = stats.ram_total_gb || 0;
             const ramPercent = stats.ram_percent || 0;
@@ -4873,8 +5068,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 opt.value = CUSTOM_PROMPT;
                 opt.textContent = "Hat Check Demo";
                 promptSelect.prepend(opt);
-                promptSelect.selectedIndex = 0;
-                
+                // Do not auto-select Hat Check Demo — leave default on Scene Description
+
                 if (promptInput) {
                     promptInput.value = opt.value;
                     promptInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -5237,7 +5432,108 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         if (key === 'r') rotationAngle = (rotationAngle + 90) % 360;
         if (key === 'b') boxRotate = !boxRotate;
     });
+
+    // ── Model info tooltip logic ───────────────────────────────────────
+    // Lazy getter — the div is injected after this script block closes
+    const getTooltipEl = () => document.getElementById('modelTooltip');
+    let tooltipVisible = false;
+
+    function buildTooltipHTML(modelId, info) {
+        const title = `<div class="model-tooltip-title">${modelId}</div>`;
+
+        if (!info) {
+            return title +
+                `<div class="model-tooltip-row">
+                    <span class="model-tooltip-key">Size</span>
+                    <span class="model-tooltip-val">—</span>
+                </div>` +
+                `<div class="model-tooltip-note">Metadata not available for remote APIs</div>`;
+        }
+
+        const rows = [];
+
+        if (info.size_gb != null) {
+            rows.push({ key: 'Size on disk', val: `${info.size_gb} GB`, highlight: true });
+        }
+        if (info.parameter_size) {
+            rows.push({ key: 'Parameters', val: info.parameter_size, highlight: true });
+        }
+        if (info.quantization) {
+            rows.push({ key: 'Quantization', val: info.quantization });
+        }
+        if (info.format) {
+            rows.push({ key: 'Format', val: info.format.toUpperCase() });
+        }
+        if (info.family) {
+            const families = info.families && info.families.length > 1
+                ? info.families.join(', ')
+                : info.family;
+            rows.push({ key: 'Family', val: families });
+        }
+
+        // Size-quality hint
+        let hint = '';
+        if (info.quantization) {
+            const q = info.quantization.toUpperCase();
+            if (q.includes('F16') || q.includes('F32') || q.includes('BF16')) {
+                hint = 'Full precision — highest quality, largest memory footprint';
+            } else if (q.includes('Q8')) {
+                hint = 'Near-lossless quality, 2× smaller than F16';
+            } else if (q.includes('Q6') || q.includes('Q5')) {
+                hint = 'High quality, good memory/performance balance';
+            } else if (q.includes('Q4')) {
+                hint = 'Good quality, ~4× smaller than F16 — popular sweet spot';
+            } else if (q.includes('Q3') || q.includes('Q2')) {
+                hint = 'Aggressive compression — fastest but lower quality';
+            } else if (q.includes('IQ')) {
+                hint = 'iMatrix importance-weighted quant — better quality per GB';
+            }
+        }
+
+        const rowsHTML = rows.map(r =>
+            `<div class="model-tooltip-row">
+                <span class="model-tooltip-key">${r.key}</span>
+                <span class="model-tooltip-val${r.highlight ? ' highlight' : ''}">${r.val}</span>
+            </div>`
+        ).join('');
+
+        const noteHTML = hint ? `<div class="model-tooltip-note">${hint}</div>` : '';
+        return title + rowsHTML + noteHTML;
+    }
+
+    function showModelTooltip(e, rowEl, modelId, info) {
+        const el = getTooltipEl();
+        if (!el) return;
+        el.innerHTML = buildTooltipHTML(modelId, info || null);
+        tooltipVisible = true;
+        positionModelTooltip(e);
+        el.classList.add('visible');
+    }
+
+    function hideModelTooltip() {
+        const el = getTooltipEl();
+        if (el) el.classList.remove('visible');
+        tooltipVisible = false;
+    }
+
+    function positionModelTooltip(e) {
+        if (!tooltipVisible) return;
+        const el = getTooltipEl();
+        if (!el) return;
+        const pad = 12;
+        const tw = el.offsetWidth || 230;
+        const th = el.offsetHeight || 140;
+        let x = e.clientX + pad;
+        let y = e.clientY + pad;
+        if (x + tw > window.innerWidth - pad) x = e.clientX - tw - pad;
+        if (y + th > window.innerHeight - pad) y = e.clientY - th - pad;
+        el.style.left = x + 'px';
+        el.style.top  = y + 'px';
+    }
+    // ──────────────────────────────────────────────────────────────────
+
 })();
 </script>
+<div id="modelTooltip" class="model-tooltip"></div>
 </body>
 </html>
