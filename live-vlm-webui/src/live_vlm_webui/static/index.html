@@ -2762,7 +2762,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         </div>
 
                         <div style="font-size:10px;color:var(--text-muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border-color);">
-                            Projection = avg cost/min (last 60 s) &times; 60 &times; 24 &times; days &times; cameras &middot; Your GB10 runs at $0
+                            Projection = avg token rate (last 120 s) &times; provider pricing &times; 60 &times; 24 &times; days &times; cameras &middot; Your GB10 runs at $0
                             <br/>Token counts are from the local model &mdash; cloud providers tokenize images differently, so this is an approximation.
                         </div>
                     </div>
@@ -3728,9 +3728,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             const cost = computeCostFromTokens(input, output);
             const valEl = document.getElementById('costEstimateValue');
             if (valEl) valEl.textContent = formatCost(cost);
-            // Re-seed the rate window so projection recalculates at new prices
-            lastKnownCost = cost;
-            updateCostProjection(cost);
+            updateCostProjection();
             updateMonthlySummary();
         }
 
@@ -3738,7 +3736,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             const el = document.getElementById('costMonthlyEstimate');
             if (!el) return;
             const ratePerMin = computeCostRatePerMin();
-            if (ratePerMin === null || ratePerMin <= 0) {
+            if (ratePerMin === null) {
                 el.textContent = '';
                 return;
             }
@@ -3748,9 +3746,11 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         }
 
         // ── Cost Projector ──────────────────────────────────────────────────
-        // Rolling window of {ts (ms), cost ($)} entries over the last 60 seconds.
-        let costRateWindow = [];
-        let lastKnownCost = 0;
+        // Rolling window of cumulative token snapshots over the last 120 s.
+        // Stores raw tokens (not $) so provider switches don't create discontinuities.
+        const RATE_WINDOW_MS = 120000;
+        const RATE_MIN_SPAN_MS = 15000;
+        let tokenRateWindow = [];
 
         function toggleCostProjector() {
             const panel   = document.getElementById('costProjectorPanel');
@@ -3758,28 +3758,31 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             const open = panel.style.display === 'none' || panel.style.display === '';
             panel.style.display = open ? 'block' : 'none';
             if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
-            if (open) updateCostProjection(lastKnownCost);
+            if (open) updateCostProjection();
         }
 
-        function updateCostRateWindow(cost) {
+        function updateTokenRateWindow(input, output) {
             const now = Date.now();
-            costRateWindow.push({ ts: now, cost: cost });
-            const cutoff = now - 60000;
-            costRateWindow = costRateWindow.filter(e => e.ts >= cutoff);
+            tokenRateWindow.push({ ts: now, input, output });
+            const cutoff = now - RATE_WINDOW_MS;
+            tokenRateWindow = tokenRateWindow.filter(e => e.ts >= cutoff);
         }
 
         function computeCostRatePerMin() {
-            if (costRateWindow.length < 2) return null;
-            const oldest = costRateWindow[0];
-            const newest = costRateWindow[costRateWindow.length - 1];
-            const elapsedMin = (newest.ts - oldest.ts) / 60000;
-            if (elapsedMin < 0.001) return null;
-            return (newest.cost - oldest.cost) / elapsedMin;
+            if (tokenRateWindow.length < 2) return null;
+            const oldest = tokenRateWindow[0];
+            const newest = tokenRateWindow[tokenRateWindow.length - 1];
+            const elapsedMs = newest.ts - oldest.ts;
+            if (elapsedMs < RATE_MIN_SPAN_MS) return null;
+            const elapsedMin = elapsedMs / 60000;
+            const deltaIn  = newest.input  - oldest.input;
+            const deltaOut = newest.output - oldest.output;
+            if (deltaIn <= 0 && deltaOut <= 0) return null;
+            const p = getSelectedProvider();
+            return ((deltaIn / 1e6) * p.input + (deltaOut / 1e6) * p.output) / elapsedMin;
         }
 
-        function updateCostProjection(cost) {
-            lastKnownCost = cost;
-            updateCostRateWindow(cost);
+        function updateCostProjection() {
             updateMonthlySummary();
 
             const panel = document.getElementById('costProjectorPanel');
@@ -3795,7 +3798,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             const breakdownEl = document.getElementById('projBreakdown');
             const provider    = getSelectedProvider();
 
-            if (ratePerMin === null || ratePerMin <= 0) {
+            if (ratePerMin === null) {
                 if (rateEl)      rateEl.textContent      = '—';
                 if (rateBasisEl) rateBasisEl.textContent  = 'Accumulating data…';
                 if (totalEl)     totalEl.textContent      = '—';
@@ -3803,8 +3806,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 return;
             }
 
-            // Rate display — show both $/min and $/hr
-            const windowSec = Math.round((costRateWindow[costRateWindow.length - 1].ts - costRateWindow[0].ts) / 1000);
+            const windowSec = Math.round((tokenRateWindow[tokenRateWindow.length - 1].ts - tokenRateWindow[0].ts) / 1000);
             const ratePerHr = ratePerMin * 60;
             const rateMinStr = ratePerMin < 0.001
                 ? '$' + (ratePerMin * 1000).toFixed(4) + '/1K min'
@@ -4427,8 +4429,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         const projCamerasEl  = document.getElementById('projCameras');
         const projDaysEl     = document.getElementById('projDays');
         if (projProviderEl) projProviderEl.addEventListener('change', onProviderChange);
-        if (projCamerasEl)  projCamerasEl.addEventListener('input', () => updateCostProjection(lastKnownCost));
-        if (projDaysEl)     projDaysEl.addEventListener('input',   () => updateCostProjection(lastKnownCost));
+        if (projCamerasEl)  projCamerasEl.addEventListener('input', () => updateCostProjection());
+        if (projDaysEl)     projDaysEl.addEventListener('input',   () => updateCostProjection());
         // Initialize summary labels for default provider
         updateCostSummaryLabels();
 
@@ -4804,7 +4806,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                                 lucide.createIcons({ nodes: [bar] });
                                 bar._iconsCreated = true;
                             }
-                            updateCostProjection(cost);
+                            updateTokenRateWindow(input, output);
+                            updateCostProjection();
                         }
                     }
 
