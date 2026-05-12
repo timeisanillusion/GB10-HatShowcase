@@ -455,37 +455,37 @@ async def models(request):
         models_list.append({"id": "YOLO",     "name": "YOLO (Object Detection)", "current": False, "image_compatible": True})
         models_list.append({"id": "YOLO_HAT", "name": "YOLO (Hat Check)",        "current": False, "image_compatible": True})
 
-        effective_base = api_base or get_or_create_session("default")["vlm_service"].api_base
-
-        # Fetch Ollama detailed metadata in parallel if the backend is Ollama
-        ollama_details: dict = {}
-        if _is_ollama_base(effective_base):
-            ollama_details = await _fetch_ollama_model_details(effective_base)
-
         if api_base:
             from openai import AsyncOpenAI
             temp_client = AsyncOpenAI(base_url=api_base, api_key=api_key if api_key else "EMPTY")
             models_response = await temp_client.models.list()
             for model in models_response.data:
                 if _is_vision_model(model.id):
-                    entry = {"id": model.id, "name": model.id, "current": False, "image_compatible": True}
-                    if model.id in ollama_details:
-                        entry["model_info"] = ollama_details[model.id]
-                    models_list.append(entry)
+                    models_list.append({"id": model.id, "name": model.id, "current": False, "image_compatible": True})
         else:
             default_svc = get_or_create_session("default")["vlm_service"]
             models_response = await default_svc.client.models.list()
             for model in models_response.data:
                 if _is_vision_model(model.id):
-                    entry = {
+                    models_list.append({
                         "id": model.id,
                         "name": model.id,
                         "current": model.id == default_svc.model,
                         "image_compatible": True,
-                    }
-                    if model.id in ollama_details:
-                        entry["model_info"] = ollama_details[model.id]
-                    models_list.append(entry)
+                    })
+
+        # Enrich LLM entries with Ollama metadata (size, quant, family) if available.
+        # This is best-effort — failures here must never break the model list.
+        try:
+            effective_base = api_base or get_or_create_session("default")["vlm_service"].api_base
+            if effective_base and _is_ollama_base(effective_base):
+                ollama_details = await _fetch_ollama_model_details(effective_base)
+                if ollama_details:
+                    for entry in models_list:
+                        if entry["id"] in ollama_details:
+                            entry["model_info"] = ollama_details[entry["id"]]
+        except Exception as e:
+            logger.debug(f"Ollama metadata enrichment failed (non-fatal): {e}")
 
         return web.Response(
             content_type="application/json", text=json.dumps({"models": models_list})
