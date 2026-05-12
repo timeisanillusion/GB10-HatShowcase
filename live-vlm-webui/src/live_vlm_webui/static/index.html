@@ -3881,6 +3881,80 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             cb.addEventListener('change', () => onModelCheckboxChange(cb));
         });
 
+        // ── Model info tooltip logic ───────────────────────────────────────
+        const getTooltipEl = () => document.getElementById('modelTooltip');
+        let tooltipVisible = false;
+
+        function buildTooltipHTML(modelId, info) {
+            const title = `<div class="model-tooltip-title">${modelId}</div>`;
+            if (!info) {
+                return title +
+                    `<div class="model-tooltip-row">
+                        <span class="model-tooltip-key">Size</span>
+                        <span class="model-tooltip-val">—</span>
+                    </div>` +
+                    `<div class="model-tooltip-note">Metadata not available for remote APIs</div>`;
+            }
+            const rows = [];
+            if (info.size_gb != null) rows.push({ key: 'Size on disk', val: `${info.size_gb} GB`, highlight: true });
+            if (info.parameter_size) rows.push({ key: 'Parameters', val: info.parameter_size, highlight: true });
+            if (info.quantization) rows.push({ key: 'Quantization', val: info.quantization });
+            if (info.format) rows.push({ key: 'Format', val: info.format.toUpperCase() });
+            if (info.family) {
+                const families = info.families && info.families.length > 1 ? info.families.join(', ') : info.family;
+                rows.push({ key: 'Family', val: families });
+            }
+            let hint = '';
+            if (info.quantization) {
+                const q = info.quantization.toUpperCase();
+                if (q.includes('F16') || q.includes('F32') || q.includes('BF16')) hint = 'Full precision — highest quality, largest memory footprint';
+                else if (q.includes('Q8')) hint = 'Near-lossless quality, 2× smaller than F16';
+                else if (q.includes('Q6') || q.includes('Q5')) hint = 'High quality, good memory/performance balance';
+                else if (q.includes('Q4')) hint = 'Good quality, ~4× smaller than F16 — popular sweet spot';
+                else if (q.includes('Q3') || q.includes('Q2')) hint = 'Aggressive compression — fastest but lower quality';
+                else if (q.includes('IQ')) hint = 'iMatrix importance-weighted quant — better quality per GB';
+            }
+            const rowsHTML = rows.map(r =>
+                `<div class="model-tooltip-row">
+                    <span class="model-tooltip-key">${r.key}</span>
+                    <span class="model-tooltip-val${r.highlight ? ' highlight' : ''}">${r.val}</span>
+                </div>`
+            ).join('');
+            const noteHTML = hint ? `<div class="model-tooltip-note">${hint}</div>` : '';
+            return title + rowsHTML + noteHTML;
+        }
+
+        function showModelTooltip(e, rowEl, modelId, info) {
+            const el = getTooltipEl();
+            if (!el) return;
+            el.innerHTML = buildTooltipHTML(modelId, info || null);
+            tooltipVisible = true;
+            positionModelTooltip(e);
+            el.classList.add('visible');
+        }
+
+        function hideModelTooltip() {
+            const el = getTooltipEl();
+            if (el) el.classList.remove('visible');
+            tooltipVisible = false;
+        }
+
+        function positionModelTooltip(e) {
+            if (!tooltipVisible) return;
+            const el = getTooltipEl();
+            if (!el) return;
+            const pad = 12;
+            const tw = el.offsetWidth || 230;
+            const th = el.offsetHeight || 140;
+            let x = e.clientX + pad;
+            let y = e.clientY + pad;
+            if (x + tw > window.innerWidth - pad) x = e.clientX - tw - pad;
+            if (y + th > window.innerHeight - pad) y = e.clientY - th - pad;
+            el.style.left = x + 'px';
+            el.style.top  = y + 'px';
+        }
+        // ──────────────────────────────────────────────────────────────────
+
         // Fetch Models — populates the LLM checkbox list
         async function fetchModels() {
             const llmBox = document.getElementById('llmCheckboxes');
@@ -5072,7 +5146,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 // Do not auto-select Hat Check Demo — leave default on Scene Description
 
                 if (promptInput) {
-                    promptInput.value = opt.value;
+                    promptInput.value = promptSelect.value;
                     promptInput.dispatchEvent(new Event('input', { bubbles: true }));
                 }
 
@@ -5433,105 +5507,6 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         if (key === 'r') rotationAngle = (rotationAngle + 90) % 360;
         if (key === 'b') boxRotate = !boxRotate;
     });
-
-    // ── Model info tooltip logic ───────────────────────────────────────
-    // Lazy getter — the div is injected after this script block closes
-    const getTooltipEl = () => document.getElementById('modelTooltip');
-    let tooltipVisible = false;
-
-    function buildTooltipHTML(modelId, info) {
-        const title = `<div class="model-tooltip-title">${modelId}</div>`;
-
-        if (!info) {
-            return title +
-                `<div class="model-tooltip-row">
-                    <span class="model-tooltip-key">Size</span>
-                    <span class="model-tooltip-val">—</span>
-                </div>` +
-                `<div class="model-tooltip-note">Metadata not available for remote APIs</div>`;
-        }
-
-        const rows = [];
-
-        if (info.size_gb != null) {
-            rows.push({ key: 'Size on disk', val: `${info.size_gb} GB`, highlight: true });
-        }
-        if (info.parameter_size) {
-            rows.push({ key: 'Parameters', val: info.parameter_size, highlight: true });
-        }
-        if (info.quantization) {
-            rows.push({ key: 'Quantization', val: info.quantization });
-        }
-        if (info.format) {
-            rows.push({ key: 'Format', val: info.format.toUpperCase() });
-        }
-        if (info.family) {
-            const families = info.families && info.families.length > 1
-                ? info.families.join(', ')
-                : info.family;
-            rows.push({ key: 'Family', val: families });
-        }
-
-        // Size-quality hint
-        let hint = '';
-        if (info.quantization) {
-            const q = info.quantization.toUpperCase();
-            if (q.includes('F16') || q.includes('F32') || q.includes('BF16')) {
-                hint = 'Full precision — highest quality, largest memory footprint';
-            } else if (q.includes('Q8')) {
-                hint = 'Near-lossless quality, 2× smaller than F16';
-            } else if (q.includes('Q6') || q.includes('Q5')) {
-                hint = 'High quality, good memory/performance balance';
-            } else if (q.includes('Q4')) {
-                hint = 'Good quality, ~4× smaller than F16 — popular sweet spot';
-            } else if (q.includes('Q3') || q.includes('Q2')) {
-                hint = 'Aggressive compression — fastest but lower quality';
-            } else if (q.includes('IQ')) {
-                hint = 'iMatrix importance-weighted quant — better quality per GB';
-            }
-        }
-
-        const rowsHTML = rows.map(r =>
-            `<div class="model-tooltip-row">
-                <span class="model-tooltip-key">${r.key}</span>
-                <span class="model-tooltip-val${r.highlight ? ' highlight' : ''}">${r.val}</span>
-            </div>`
-        ).join('');
-
-        const noteHTML = hint ? `<div class="model-tooltip-note">${hint}</div>` : '';
-        return title + rowsHTML + noteHTML;
-    }
-
-    function showModelTooltip(e, rowEl, modelId, info) {
-        const el = getTooltipEl();
-        if (!el) return;
-        el.innerHTML = buildTooltipHTML(modelId, info || null);
-        tooltipVisible = true;
-        positionModelTooltip(e);
-        el.classList.add('visible');
-    }
-
-    function hideModelTooltip() {
-        const el = getTooltipEl();
-        if (el) el.classList.remove('visible');
-        tooltipVisible = false;
-    }
-
-    function positionModelTooltip(e) {
-        if (!tooltipVisible) return;
-        const el = getTooltipEl();
-        if (!el) return;
-        const pad = 12;
-        const tw = el.offsetWidth || 230;
-        const th = el.offsetHeight || 140;
-        let x = e.clientX + pad;
-        let y = e.clientY + pad;
-        if (x + tw > window.innerWidth - pad) x = e.clientX - tw - pad;
-        if (y + th > window.innerHeight - pad) y = e.clientY - th - pad;
-        el.style.left = x + 'px';
-        el.style.top  = y + 'px';
-    }
-    // ──────────────────────────────────────────────────────────────────
 
 })();
 </script>
