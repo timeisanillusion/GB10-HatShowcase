@@ -2686,11 +2686,11 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     <div id="costSummaryRow" style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-tertiary); cursor:pointer; user-select:none;"
                          onclick="toggleCostProjector()">
                         <i data-lucide="dollar-sign" style="width:13px;height:13px;flex-shrink:0;color:var(--accent-color);"></i>
-                        <span style="color:var(--text-secondary);">Estimated cloud cost (GPT-4o rates):</span>
+                        <span style="color:var(--text-secondary);">Cloud cost<span id="costProviderLabel"></span>:</span>
                         <span id="costEstimateValue" style="font-weight:600;color:var(--text-primary);">$0.000000</span>
                         <span id="costEstimateTokens" style="color:var(--text-muted);margin-left:2px;"></span>
-                        <span style="color:var(--text-muted);font-size:11px;cursor:help;border-bottom:1px dotted var(--text-muted);"
-                              title="GPT-4o list prices used as a cloud reference point.&#10;&#10;$2.50 per 1M input tokens — the image + prompt sent to the model each frame.&#10;$10.00 per 1M output tokens — the description the model writes back (4× more expensive because generating text is heavier than reading it).&#10;&#10;Your GB10 runs these locally at $0 — this shows what the same traffic would cost on a cloud API.">$2.50/1M in · $10/1M out</span>
+                        <span id="costMonthlyEstimate" style="font-weight:600;color:var(--accent-color);margin-left:4px;font-size:11px;"></span>
+                        <span id="costRateLabel" style="color:var(--text-muted);font-size:11px;cursor:help;border-bottom:1px dotted var(--text-muted);"></span>
                         <span style="margin-left:auto;display:flex;align-items:center;gap:4px;color:var(--text-muted);font-size:11px;">
                             <span id="costProjectorLabel">Cost Projector</span>
                             <i id="costProjectorChevron" data-lucide="chevron-right" style="width:13px;height:13px;transition:transform 0.2s;"></i>
@@ -2705,6 +2705,18 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
                         <!-- Inputs row -->
                         <div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--text-muted);">
+                                Cloud Provider
+                                <select id="projProvider"
+                                        style="width:170px;padding:4px 6px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:12px;">
+                                    <option value="gpt-4o">GPT-4o</option>
+                                    <option value="gpt-4o-mini">GPT-4o mini</option>
+                                    <option value="claude-sonnet-4">Claude Sonnet 4</option>
+                                    <option value="claude-opus-4">Claude Opus 4</option>
+                                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                                </select>
+                            </label>
                             <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--text-muted);">
                                 Number of Cameras
                                 <input type="number" id="projCameras" value="1" min="1" max="10000" step="1"
@@ -2732,7 +2744,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         </div>
 
                         <div style="font-size:10px;color:var(--text-muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border-color);">
-                            Projection = avg cost/min (last 60 s) × 60 × 24 × days × cameras · GPT-4o list prices · GB10 runs at $0
+                            Projection = avg cost/min (last 60 s) &times; 60 &times; 24 &times; days &times; cameras &middot; Your GB10 runs at $0
+                            <br/>Token counts are from the local model &mdash; cloud providers tokenize images differently, so this is an approximation.
                         </div>
                     </div>
                 </div>
@@ -3585,6 +3598,83 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             toggle.classList.toggle('collapsed');
         }
 
+        // ── Cloud Provider Pricing ──────────────────────────────────────────
+        const CLOUD_PROVIDERS = {
+            'gpt-4o':            { label: 'GPT-4o',            input: 2.50,  output: 10.00 },
+            'gpt-4o-mini':       { label: 'GPT-4o mini',       input: 0.15,  output: 0.60  },
+            'claude-sonnet-4':   { label: 'Claude Sonnet 4',   input: 3.00,  output: 15.00 },
+            'claude-opus-4':     { label: 'Claude Opus 4',     input: 15.00, output: 75.00 },
+            'gemini-2.5-pro':    { label: 'Gemini 2.5 Pro',    input: 1.25,  output: 10.00 },
+            'gemini-2.5-flash':  { label: 'Gemini 2.5 Flash',  input: 0.15,  output: 3.50  },
+        };
+
+        function getSelectedProvider() {
+            const sel = document.getElementById('projProvider');
+            const key = sel ? sel.value : 'gpt-4o';
+            return CLOUD_PROVIDERS[key] || CLOUD_PROVIDERS['gpt-4o'];
+        }
+
+        // Last-known raw token totals so we can recalculate cost when provider changes
+        let lastTokenTotals = { input: 0, output: 0 };
+
+        function computeCostFromTokens(input, output) {
+            const p = getSelectedProvider();
+            return (input / 1e6) * p.input + (output / 1e6) * p.output;
+        }
+
+        function formatCost(cost) {
+            if (cost < 0.01) return '$' + cost.toFixed(6);
+            if (cost < 1)    return '$' + cost.toFixed(4);
+            if (cost < 1000) return '$' + cost.toFixed(2);
+            return '$' + cost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        }
+
+        function updateCostSummaryLabels() {
+            const p = getSelectedProvider();
+            const providerLabelEl = document.getElementById('costProviderLabel');
+            const rateLabelEl     = document.getElementById('costRateLabel');
+            if (providerLabelEl) providerLabelEl.textContent = ` (${p.label})`;
+            if (rateLabelEl) {
+                rateLabelEl.textContent = `$${p.input}/1M in · $${p.output}/1M out`;
+                rateLabelEl.title =
+                    `${p.label} list prices used as a cloud reference point.\n\n` +
+                    `$${p.input.toFixed(2)} per 1M input tokens — the image + prompt sent each frame.\n` +
+                    `$${p.output.toFixed(2)} per 1M output tokens — the description written back.\n\n` +
+                    `Your GB10 runs these locally at $0 — this shows what the same workload would cost on a cloud API.`;
+            }
+        }
+
+        // Recalculate everything when provider changes
+        function onProviderChange() {
+            updateCostSummaryLabels();
+            recalcCostDisplay();
+        }
+
+        function recalcCostDisplay() {
+            const { input, output } = lastTokenTotals;
+            if (input === 0 && output === 0) return;
+            const cost = computeCostFromTokens(input, output);
+            const valEl = document.getElementById('costEstimateValue');
+            if (valEl) valEl.textContent = formatCost(cost);
+            // Re-seed the rate window so projection recalculates at new prices
+            lastKnownCost = cost;
+            updateCostProjection(cost);
+            updateMonthlySummary();
+        }
+
+        function updateMonthlySummary() {
+            const el = document.getElementById('costMonthlyEstimate');
+            if (!el) return;
+            const ratePerMin = computeCostRatePerMin();
+            if (ratePerMin === null || ratePerMin <= 0) {
+                el.textContent = '';
+                return;
+            }
+            const monthly = ratePerMin * 60 * 24 * 30;
+            el.textContent = `~${formatCost(monthly)}/mo`;
+            el.title = 'Projected monthly cost for 1 camera running 24/7 at current rate';
+        }
+
         // ── Cost Projector ──────────────────────────────────────────────────
         // Rolling window of {ts (ms), cost ($)} entries over the last 60 seconds.
         let costRateWindow = [];
@@ -3596,14 +3686,12 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             const open = panel.style.display === 'none' || panel.style.display === '';
             panel.style.display = open ? 'block' : 'none';
             if (chevron) chevron.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
-            // Recalculate projection immediately on open so the numbers aren't stale
             if (open) updateCostProjection(lastKnownCost);
         }
 
         function updateCostRateWindow(cost) {
             const now = Date.now();
             costRateWindow.push({ ts: now, cost: cost });
-            // Prune entries older than 60 seconds
             const cutoff = now - 60000;
             costRateWindow = costRateWindow.filter(e => e.ts >= cutoff);
         }
@@ -3613,13 +3701,14 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             const oldest = costRateWindow[0];
             const newest = costRateWindow[costRateWindow.length - 1];
             const elapsedMin = (newest.ts - oldest.ts) / 60000;
-            if (elapsedMin < 0.001) return null;  // avoid division by near-zero
+            if (elapsedMin < 0.001) return null;
             return (newest.cost - oldest.cost) / elapsedMin;
         }
 
         function updateCostProjection(cost) {
             lastKnownCost = cost;
             updateCostRateWindow(cost);
+            updateMonthlySummary();
 
             const panel = document.getElementById('costProjectorPanel');
             if (!panel || panel.style.display === 'none' || panel.style.display === '') return;
@@ -3632,6 +3721,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             const rateBasisEl = document.getElementById('projRateBasis');
             const totalEl     = document.getElementById('projTotal');
             const breakdownEl = document.getElementById('projBreakdown');
+            const provider    = getSelectedProvider();
 
             if (ratePerMin === null || ratePerMin <= 0) {
                 if (rateEl)      rateEl.textContent      = '—';
@@ -3641,41 +3731,31 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 return;
             }
 
-            // Rate display
+            // Rate display — show both $/min and $/hr
             const windowSec = Math.round((costRateWindow[costRateWindow.length - 1].ts - costRateWindow[0].ts) / 1000);
-            const rateStr = ratePerMin < 0.001
-                ? '$' + (ratePerMin * 1000).toFixed(4) + ' /1000 min'
-                : '$' + ratePerMin.toFixed(6) + ' /min';
+            const ratePerHr = ratePerMin * 60;
+            const rateMinStr = ratePerMin < 0.001
+                ? '$' + (ratePerMin * 1000).toFixed(4) + '/1K min'
+                : '$' + ratePerMin.toFixed(6) + '/min';
+            const rateHrStr = formatCost(ratePerHr) + '/hr';
             const numLLMsForBasis = [...(typeof selectedModels !== 'undefined' ? selectedModels : new Set())]
                 .filter(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase())).length;
             const llmBasisNote = numLLMsForBasis > 1 ? ` · ${numLLMsForBasis} LLMs combined` : ' · 1 LLM';
-            if (rateEl)      rateEl.textContent     = rateStr;
-            if (rateBasisEl) rateBasisEl.textContent = `avg over last ${windowSec}s · 1 camera${llmBasisNote}`;
+            if (rateEl)      rateEl.textContent     = `${rateMinStr}  (${rateHrStr})`;
+            if (rateBasisEl) rateBasisEl.textContent = `avg over last ${windowSec}s · 1 camera${llmBasisNote} · ${provider.label} rates`;
 
-            // Projection: rate/min × 60 × 24 × days × cameras
-            // Count active LLM models (for display only — ratePerMin already includes all LLMs)
             const numLLMs = [...(typeof selectedModels !== 'undefined' ? selectedModels : new Set())]
                 .filter(m => !['YOLO','YOLO_HAT'].includes(m.toUpperCase())).length;
-            // Projection: ratePerMin already reflects all active LLMs on 1 camera.
-            // Scale to N cameras × D days.
             const projected   = ratePerMin * 60 * 24 * days * cameras;
             const perCamDay   = ratePerMin * 60 * 24;
 
-            if (totalEl) {
-                totalEl.textContent = projected < 0.01
-                    ? '$' + projected.toFixed(6)
-                    : projected < 1
-                    ? '$' + projected.toFixed(4)
-                    : projected < 1000
-                    ? '$' + projected.toFixed(2)
-                    : '$' + projected.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-            }
+            if (totalEl) totalEl.textContent = formatCost(projected);
             if (breakdownEl) {
                 const perCamDayStr = perCamDay < 0.001
-                    ? '$' + (perCamDay * 1000).toFixed(4) + '/1000 cam-days'
-                    : '$' + perCamDay.toFixed(4) + '/cam/day';
+                    ? '$' + (perCamDay * 1000).toFixed(4) + '/1K cam-days'
+                    : formatCost(perCamDay) + '/cam/day';
                 const llmNote = numLLMs > 0 ? ` · ${numLLMs} LLM${numLLMs !== 1 ? 's' : ''} active` : '';
-                breakdownEl.textContent = `${cameras} cam${cameras !== 1 ? 's' : ''} × ${days} day${days !== 1 ? 's' : ''} · ${perCamDayStr}${llmNote}`;
+                breakdownEl.textContent = `${cameras} cam${cameras !== 1 ? 's' : ''} × ${days} day${days !== 1 ? 's' : ''} · ${perCamDayStr}${llmNote} · ${provider.label}`;
             }
         }
 
@@ -4259,11 +4339,15 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             }
         });
 
-        // Cost Projector input listeners — recalculate when user changes cameras or days
-        const projCamerasEl = document.getElementById('projCameras');
-        const projDaysEl    = document.getElementById('projDays');
-        if (projCamerasEl) projCamerasEl.addEventListener('input', () => updateCostProjection(lastKnownCost));
-        if (projDaysEl)    projDaysEl.addEventListener('input',   () => updateCostProjection(lastKnownCost));
+        // Cost Projector input listeners — recalculate when user changes provider, cameras, or days
+        const projProviderEl = document.getElementById('projProvider');
+        const projCamerasEl  = document.getElementById('projCameras');
+        const projDaysEl     = document.getElementById('projDays');
+        if (projProviderEl) projProviderEl.addEventListener('change', onProviderChange);
+        if (projCamerasEl)  projCamerasEl.addEventListener('input', () => updateCostProjection(lastKnownCost));
+        if (projDaysEl)     projDaysEl.addEventListener('input',   () => updateCostProjection(lastKnownCost));
+        // Initialize summary labels for default provider
+        updateCostSummaryLabels();
 
         // Debug payload toggles (Settings modal): send set_debug so server includes request/response payload in vlm_response
         function sendDebugFlags() {
@@ -4617,33 +4701,26 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 if (data.type === 'vlm_response') {
                     // Update running cost estimate if token totals are present
                     if (data.token_totals) {
-                        const GPT4O_INPUT_PER_M  = 2.50;   // $ per 1M input tokens
-                        const GPT4O_OUTPUT_PER_M = 10.00;  // $ per 1M output tokens
                         const { input, output } = data.token_totals;
-                        const cost = (input / 1e6) * GPT4O_INPUT_PER_M
-                                   + (output / 1e6) * GPT4O_OUTPUT_PER_M;
+                        lastTokenTotals = { input, output };
+                        const cost = computeCostFromTokens(input, output);
                         const bar = document.getElementById('costEstimateBar');
                         const valEl = document.getElementById('costEstimateValue');
                         const tokEl = document.getElementById('costEstimateTokens');
                         if (bar && valEl) {
                             bar.style.display = 'flex';
-                            // Format: show more decimals for small values, fewer for large
-                            valEl.textContent = cost < 0.01
-                                ? '$' + cost.toFixed(6)
-                                : cost < 1
-                                ? '$' + cost.toFixed(4)
-                                : '$' + cost.toFixed(2);
+                            valEl.textContent = formatCost(cost);
                             if (tokEl) {
                                 const totalTok = input + output;
                                 tokEl.textContent = totalTok >= 1000
                                     ? `(${(totalTok / 1000).toFixed(1)}K tokens)`
                                     : `(${totalTok} tokens)`;
                             }
-                            if (bar && !document.getElementById('costEstimateBar')._iconsCreated) {
+                            if (!bar._iconsCreated) {
+                                updateCostSummaryLabels();
                                 lucide.createIcons({ nodes: [bar] });
                                 bar._iconsCreated = true;
                             }
-                            // Update cost projector rolling window + recalculate
                             updateCostProjection(cost);
                         }
                     }
