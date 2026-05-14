@@ -58,9 +58,9 @@ The hat detection overlay is built into the WebUI. Just select YOLO from the mod
 
 You need three things installed on the GB10 before running the launch script:
 
-1. **Python 3.10+ with venv support:**
+1. **Python 3.10+ with venv support (plus openssl for self-signed cert):**
    ```bash
-   sudo apt install -y python3 python3-venv git curl
+   sudo apt install -y python3 python3-venv git curl openssl
    ```
 
 2. **Ollama:**
