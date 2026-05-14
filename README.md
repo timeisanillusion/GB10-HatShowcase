@@ -121,18 +121,6 @@ ssh -L 8090:localhost:8090 user@<GB10-IP>
 
 ---
 
-
-## 🌟 Key Differences from Original
-
-| Feature | Original | This Project |
-|---------|----------|--------------|
-| Hat detection | External patch | Built into `index.html` |
-| Project structure | Separate patch repo | Single consolidated repo |
-| Patching step | Required | Not needed |
-| Model | Configurable | Pre-configured for Qwen2.5-VL 7B |
-
----
-
 ## 📄 License
 
 Apache 2.0 - See `live-vlm-webui/LICENSE` for details.
