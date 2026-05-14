@@ -15,9 +15,12 @@ This is a standalone VLM WebUI forked from NVIDIA's [live-vlm-webui](https://git
 
 ## ✨ Features
 
-* 🎥 **Real-time video streaming** via WebRTC from webcam
-* 🤖 **VLM integration** - Works with Ollama (Qwen2.5-VL 7B recommended)
-* 📊 **System monitoring** - GPU, VRAM, CPU, RAM stats
+* 🎥 **Real-time video streaming** via WebRTC from webcam or RTSP camera
+* 🤖 **Multi-model VLM** — run up to 2 LLMs side-by-side via Ollama (Qwen2.5-VL 7B recommended)
+* 🎯 **YOLO + Hat Check overlay** — bounding-box detection drawn on the live video feed
+* 💰 **Cloud cost estimator** — projects what the same workload would cost on GPT-4o, Claude, Gemini etc.
+* 📊 **System monitoring** — GPU utilization, Memory Pool (unified memory), CPU, sparklines
+* 🔒 **Fully offline-capable** — no CDN/internet required at runtime
 * 🌓 **Light/Dark theme** toggle
 
 ---
@@ -53,48 +56,68 @@ The hat detection overlay is built into the WebUI. Just select YOLO from the mod
 
 ### Prerequisites (On GB10)
 
-1. **Install Ollama:**
+You need three things installed on the GB10 before running the launch script:
+
+1. **Python 3.10+ with venv support:**
+   ```bash
+   sudo apt install -y python3 python3-venv git curl
+   ```
+
+2. **Ollama:**
    ```bash
    curl -fsSL https://ollama.com/install.sh | sh
    ```
 
-2. **Pull the Qwen2.5-VL 7B model:**
+3. **Ollama tuning for Blackwell (avoids CUDA assertion failures):**
    ```bash
-   ollama pull qwen2.5vl:7b
+   sudo systemctl edit ollama
+   ```
+   Add these lines, save, then run `sudo systemctl daemon-reload && sudo systemctl restart ollama`:
+   ```ini
+   [Service]
+   Environment="OLLAMA_CONTEXT_LENGTH=8192"
+   Environment="OLLAMA_MAX_LOADED_MODELS=2"
    ```
 
-3. **Install Python dependencies:**
-   ```bash
-   pip install -r live-vlm-webui/requirements.txt
-   ```
+That's it — the launch script handles the rest (venv, pip install, model pull, model pre-load).
 
 ### Installation
 
 ```bash
 git clone https://github.com/timeisanillusion/GB10-HatShowcase
 cd GB10-HatShowcase
-
----
-
-## 🎮 Running the Showcase
-
-```bash
 chmod +x start_vlm_showcase.sh
 ./start_vlm_showcase.sh
 ```
 
-**OR** from the `live-vlm-webui` directory:
+The first run will automatically:
+- Create a Python virtual environment in `live-vlm-webui/venv`
+- Install the WebUI package and dependencies
+- Pull `qwen2.5vl:7b` from Ollama (~6 GB download, one-time)
+- Pre-load the model into GPU memory
 
-```bash
-cd live-vlm-webui
-./scripts/start_server.sh --port 8090 --model qwen2.5vl:7b
+Subsequent runs skip all of the above and start immediately.
+
+---
+
+## 🎮 Using the Showcase
+
+After the script starts, you'll see:
+```
+🚀 DELL GB10 VLM SHOWCASE IS LIVE
+URL: https://<GB10-IP>:8090
 ```
 
 1. Open `https://<GB10-IP>:8090` in your browser
 2. Accept the self-signed certificate (Advanced → Proceed)
-3. Select **"Hat Check Demo"** from the prompt dropdown
-4. Allow camera access
-5. Put on a hat and step into the frame!
+3. Allow camera access — the Qwen2.5-VL model is pre-selected and ready
+4. (Optional) Switch the prompt preset to **"Hat Check Demo"** to enable bounding-box overlays
+
+**Connecting from another machine?** HTTPS is required for webcam access. If your browser blocks the self-signed cert, use an SSH tunnel:
+```bash
+ssh -L 8090:localhost:8090 user@<GB10-IP>
+# then browse to https://localhost:8090
+```
 
 ---
 
@@ -118,21 +141,4 @@ Apache 2.0 - See `live-vlm-webui/LICENSE` for details.
 
 ## 🙏 Acknowledgments
 
-Built on top of [NVIDIA Live VLM WebUI](https://github.com/nvidia-ai-iot/live-vlm-webui) - a universal web interface for real-time Vision Language Model interaction.
-
-## GB10 Specifics
-For some models you may need to edit the ollama context lenght:
-```bash
-sudo systemctl edit ollama
-```
-In the editor that opens, add:
-```bash
-[Service]
-Environment="OLLAMA_CONTEXT_LENGTH=8192"
-```
-
-Save, then:
-```bash
-bashsudo systemctl daemon-reload
-sudo systemctl restart ollama
-```
+Built on top of [NVIDIA Live VLM WebUI](https://github.com/nvidia-ai-iot/live-vlm-webui) — a universal web interface for real-time Vision Language Model interaction.

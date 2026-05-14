@@ -32,13 +32,29 @@ VENV_PATH="$REPO_DIR/venv"
 # Set this to "qwen-72b-slim" for high-accuracy flex
 MODEL="qwen2.5vl:7b"
 
+# Auto-pull model if not already present locally
+if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$MODEL"; then
+    echo "📥 Model $MODEL not found locally — pulling from Ollama..."
+    ollama pull "$MODEL" || { echo "❌ ollama pull failed — is Ollama installed and running?"; exit 1; }
+fi
+
 echo "Pre-loading $MODEL into Blackwell memory..."
 curl -s -X POST http://127.0.0.1:11434/api/generate -d "{\"model\": \"$MODEL\", \"keep_alive\": \"1h\"}" > /dev/null
 
 # 5. LAUNCH WEBUI
 if [ -d "$REPO_DIR" ]; then
     cd "$REPO_DIR"
-    
+
+    # Auto-create venv on first run
+    if [ ! -d "$VENV_PATH" ]; then
+        echo "📦 Creating Python virtual environment at $VENV_PATH ..."
+        python3 -m venv "$VENV_PATH" || {
+            echo "❌ Failed to create venv. Install python3-venv first:"
+            echo "   sudo apt install python3-venv"
+            exit 1
+        }
+    fi
+
     # Activate venv
     [[ -n "$VIRTUAL_ENV" ]] || source "$VENV_PATH/bin/activate"
 
