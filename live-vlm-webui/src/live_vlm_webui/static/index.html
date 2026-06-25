@@ -2337,6 +2337,17 @@ limitations under the License.
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+
+                        <div class="settings-item">
+                            <div>
+                                <div class="settings-item-label">Enable video controls</div>
+                                <div class="settings-item-description">Keyboard shortcuts (R rotate, S swap, M mirror, B box rotate)</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="videoControlsToggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 
@@ -3481,6 +3492,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         const popInToggle = document.getElementById('popInToggle');
         const glowToggle = document.getElementById('glowToggle');
         const fadeToggle = document.getElementById('fadeToggle');
+        const videoControlsToggle = document.getElementById('videoControlsToggle');
         const overlayPosition = document.getElementById('overlayPosition');
         const layoutOrder = document.getElementById('layoutOrder');
         const videoOverlay = document.getElementById('videoOverlay');
@@ -3491,6 +3503,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             popIn: localStorage.getItem('popIn') !== 'false',
             glow: localStorage.getItem('glow') !== 'false',
             fade: localStorage.getItem('fade') !== 'false',
+            videoControls: localStorage.getItem('videoControls') === 'true',
             overlayPosition: localStorage.getItem('overlayPosition') || 'none',
             layoutOrder: localStorage.getItem('layoutOrder') || 'vlm-first',
             gpuUpdateInterval: parseFloat(localStorage.getItem('gpuUpdateInterval')) || 0.25
@@ -3500,6 +3513,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         popInToggle.checked = settings.popIn;
         glowToggle.checked = settings.glow;
         fadeToggle.checked = settings.fade;
+        videoControlsToggle.checked = settings.videoControls;
         overlayPosition.value = settings.overlayPosition;
         layoutOrder.value = settings.layoutOrder;
         gpuUpdateInterval.value = settings.gpuUpdateInterval;
@@ -3567,6 +3581,11 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         fadeToggle.addEventListener('change', (e) => {
             settings.fade = e.target.checked;
             localStorage.setItem('fade', settings.fade);
+        });
+
+        videoControlsToggle.addEventListener('change', (e) => {
+            settings.videoControls = e.target.checked;
+            localStorage.setItem('videoControls', settings.videoControls);
         });
 
         colorfulFocusToggle.addEventListener('change', (e) => {
@@ -5662,6 +5681,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
     }
 
     window.addEventListener('keydown', (e) => {
+        // Video control shortcuts are opt-in via Settings > Enable video controls (off by default)
+        if (localStorage.getItem('videoControls') !== 'true') return;
         // Keyboard controls work when in hat mode OR when YOLO detection is active
         if (!isHatModeActive && !isYOLOActive()) return;
         const key = e.key.toLowerCase();
