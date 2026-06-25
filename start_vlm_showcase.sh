@@ -10,16 +10,38 @@
 REAL_USER="${SUDO_USER:-$USER}"
 export HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
 
-# Ollama tuning — must be set in the server process's environment.
-# OLLAMA_MAX_LOADED_MODELS=2  keeps both LLMs resident (prevents 21s reload cycles).
-# OLLAMA_CONTEXT_LENGTH=8192  prevents CUDA_POOL_VMM_MAX_SIZE assertion failures.
-export OLLAMA_MAX_LOADED_MODELS=2
-export OLLAMA_CONTEXT_LENGTH=8192
+# Ollama tuning is applied to the Ollama *service* (a systemd drop-in), not here.
+# Ollama runs as its own daemon, so variables exported in this script never reach
+# it — run ./setup-ollama-tuning.sh once to install the drop-in. Below we only
+# verify the key settings actually reached the running daemon, and warn if not.
+if command -v systemctl >/dev/null 2>&1; then
+    OLLAMA_ENV="$(systemctl show ollama -p Environment 2>/dev/null || true)"
+    for v in OLLAMA_CONTEXT_LENGTH GGML_CUDA_NO_VMM OLLAMA_MAX_LOADED_MODELS; do
+        case "$OLLAMA_ENV" in
+            *"$v"*) ;;
+            *) echo "⚠️  $v is not set on the Ollama service — run ./setup-ollama-tuning.sh for stable Blackwell operation." ;;
+        esac
+    done
+fi
 
-# 2. ZOMBIE CLEANUP (Blackwell Reset)
-echo "Resetting Blackwell GPU memory..."
-sudo pkill -9 ollama_llama_server 2>/dev/null
-sleep 1
+# 2. FREE OLLAMA MEMORY (pre-flight reset)
+# Unload every model Ollama currently has resident, so the showcase model gets a
+# clean, fast load instead of stalling while Ollama evicts a large model that
+# another service (e.g. Hermes) left loaded.
+#
+# This replaces the old `pkill ollama_llama_server` reset, which silently stopped
+# working after the Ollama upgrade: the runner is now named `llama-server`, and
+# killing it would need root anyway. `ollama stop` unloads gracefully via the API
+# (no sudo) and only frees memory -- your models stay on disk. The showcase
+# model is (re)loaded by the pre-load step below.
+# (Hard reset, only if a runner ever wedges: sudo systemctl restart ollama)
+echo "Freeing Ollama memory (unloading any resident models)..."
+if command -v ollama >/dev/null 2>&1; then
+    for m in $(ollama ps 2>/dev/null | awk 'NR>1 {print $1}'); do
+        echo "   unloading $m"
+        ollama stop "$m" >/dev/null 2>&1 || true
+    done
+fi
 
 # 3. DYNAMIC PATHS
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
