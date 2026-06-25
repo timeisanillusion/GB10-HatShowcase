@@ -41,6 +41,8 @@ GB10-HatShowcase/
 │   ├── scripts/             # Build and deployment scripts
 │   └── tests/               # Unit, integration, e2e tests
 ├── start_vlm_showcase.sh    # Launch script for the showcase
+├── setup-ollama-tuning.sh   # One-time Ollama tuning installer (systemd drop-in)
+├── ollama-override.conf     # Ollama tuning values for the GB10 (Blackwell)
 ```
 
 ---
@@ -68,16 +70,20 @@ You need three things installed on the GB10 before running the launch script:
    curl -fsSL https://ollama.com/install.sh | sh
    ```
 
-3. **Ollama tuning for Blackwell (avoids CUDA assertion failures):**
+3. **Ollama tuning for Blackwell.** The GB10 needs a handful of Ollama settings
+   for stability (they prevent CUDA VMM assertion failures and flash-attention
+   issues) and for the two-model showcase behaviour. Apply them with the bundled
+   helper, which installs a systemd drop-in and restarts Ollama:
    ```bash
-   sudo systemctl edit ollama
+   ./setup-ollama-tuning.sh
    ```
-   Add these lines, save, then run `sudo systemctl daemon-reload && sudo systemctl restart ollama`:
-   ```ini
-   [Service]
-   Environment="OLLAMA_CONTEXT_LENGTH=8192"
-   Environment="OLLAMA_MAX_LOADED_MODELS=2"
+   Verify it took effect:
+   ```bash
+   systemctl show ollama -p Environment | tr ' ' '\n' | grep -E 'OLLAMA|GGML'
    ```
+   The full list of settings (with per-line notes) lives in `ollama-override.conf`.
+   The `OLLAMA_HOST` / `OLLAMA_ORIGINS` entries there are optional — they're only
+   needed if you reach the Ollama API from another machine.
 
 That's it — the launch script handles the rest (venv, pip install, model pull, model pre-load).
 
