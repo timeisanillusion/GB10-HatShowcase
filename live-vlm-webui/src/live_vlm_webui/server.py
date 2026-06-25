@@ -389,16 +389,81 @@ async def _warmup_and_activate(svc, model_name: str, session_id: str) -> None:
 # Used to filter the model list so text-only Ollama models are hidden.
 _VISION_KEYWORDS = (
     "vl", "vlm", "vision", "llava", "moondream", "bakllava",
-    "minicpm-v", "glm", "internvl", "cogvlm", "idefics",
+    "minicpm-v", "internvl", "cogvlm", "idefics",
     "pixtral", "gemini", "gpt-4v", "gpt-4o", "claude-3",
     "qwen-vl", "qwenvl", "phi-3-vision", "phi3-vision",
-    "gemma3", "llama3.2", "llama-3.2"
+    "gemma3", "llama3.2", "llama-3.2",
+    # GLM vision variants only. Bare "glm" was removed because it matched
+    # text-only models such as "glm-4.7-flash" as a substring.
+    "glm-4v", "glm-4.1v", "glm-4.5v", "glm-4.6v", "glm-edge-v",
 )
 
 def _is_vision_model(model_id: str) -> bool:
     """Return True if the model name suggests it supports image input."""
     lower = model_id.lower()
     return any(kw in lower for kw in _VISION_KEYWORDS)
+
+
+# Cache of vision-capable model-name sets keyed by Ollama base URL, with a short
+# TTL. Capabilities only change when models are pulled/removed, so a brief cache
+# avoids issuing an /api/show call per model on every /models request.
+_VISION_CACHE = {}
+_VISION_CACHE_TTL = 120.0  # seconds
+
+
+async def _fetch_ollama_vision_models(api_base: str):
+    """
+    Query Ollama for the set of locally-available models that report a 'vision'
+    capability via /api/show. This is authoritative, unlike name-based keyword
+    matching, and is the preferred filter when the backend is Ollama.
+
+    Returns a set of model names (e.g. {"gemma3:12b", "qwen3-vl:8b"}), or None if
+    capabilities could not be determined so the caller falls back to keywords.
+    """
+    import time
+
+    ollama_base = api_base.rstrip("/")
+    if ollama_base.endswith("/v1"):
+        ollama_base = ollama_base[:-3]
+
+    cached = _VISION_CACHE.get(ollama_base)
+    if cached and (time.monotonic() - cached[0]) < _VISION_CACHE_TTL:
+        return cached[1]
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"{ollama_base}/api/tags") as resp:
+                if resp.status != 200:
+                    return None
+                tags = await resp.json()
+            names = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
+
+            async def _caps(name):
+                try:
+                    async with session.post(
+                        f"{ollama_base}/api/show", json={"model": name}
+                    ) as r:
+                        if r.status != 200:
+                            return name, None
+                        info = await r.json()
+                        return name, info.get("capabilities") or []
+                except Exception:
+                    return name, None
+
+            results = await asyncio.gather(*[_caps(n) for n in names])
+
+        # If every /api/show failed, signal "unknown" so the caller falls back to
+        # keyword matching rather than hiding the entire model list.
+        if all(caps is None for _, caps in results):
+            return None
+
+        vision = {name for name, caps in results if caps and "vision" in caps}
+        _VISION_CACHE[ollama_base] = (time.monotonic(), vision)
+        return vision
+    except Exception as e:
+        logger.debug(f"Could not fetch Ollama vision capabilities: {e}")
+        return None
 
 
 async def _fetch_ollama_model_details(api_base: str) -> dict:
@@ -464,12 +529,30 @@ async def models(request):
             b = b.strip().removesuffix(":latest")
             return a == b
 
+        # Prefer Ollama's authoritative per-model capabilities to decide vision
+        # support; fall back to name keywords for non-Ollama (vLLM/OpenAI) bases
+        # or if capabilities can't be read.
+        effective_base = api_base or getattr(default_svc, "api_base", "") or ""
+        vision_set = None
+        if effective_base and _is_ollama_base(effective_base):
+            vision_set = await _fetch_ollama_vision_models(effective_base)
+
+        def _supports_vision(model_id: str) -> bool:
+            if vision_set is not None:
+                mid = model_id.strip()
+                return (
+                    mid in vision_set
+                    or mid.removesuffix(":latest") in vision_set
+                    or f"{mid}:latest" in vision_set
+                )
+            return _is_vision_model(model_id)
+
         if api_base:
             from openai import AsyncOpenAI
             temp_client = AsyncOpenAI(base_url=api_base, api_key=api_key if api_key else "EMPTY")
             models_response = await temp_client.models.list()
             for model in models_response.data:
-                if _is_vision_model(model.id):
+                if _supports_vision(model.id):
                     models_list.append({
                         "id": model.id, "name": model.id,
                         "current": _models_match(model.id, default_model),
@@ -478,7 +561,7 @@ async def models(request):
         else:
             models_response = await default_svc.client.models.list()
             for model in models_response.data:
-                if _is_vision_model(model.id):
+                if _supports_vision(model.id):
                     models_list.append({
                         "id": model.id, "name": model.id,
                         "current": _models_match(model.id, default_model),
