@@ -315,6 +315,8 @@ class NVMLMonitor(GPUMonitor):
         self.reinit_attempted = False  # Track if we've tried reinitialization
         self.consecutive_errors = 0  # Count consecutive errors
         self.stats_call_count = 0  # Track total number of stats calls (for startup grace period)
+        self._recovery_counter = 0  # Periodic NVML recovery attempts when disabled
+        self._recovery_retry_calls = 120  # Retry NVML re-init ~every 30s (at 250ms poll)
 
         # Detect DGX Spark
         self.product_name = ""
@@ -366,7 +368,22 @@ class NVMLMonitor(GPUMonitor):
         self.stats_call_count += 1
 
         if not self.available:
-            return self._get_fallback_stats()
+            # Periodic recovery: a transient burst of NVML errors (e.g. during
+            # heavy GPU load at startup) can disable monitoring, but the GPU
+            # itself recovers. Retry NVML re-init every _recovery_retry_calls
+            # calls instead of staying dark until the process restarts.
+            self._recovery_counter += 1
+            if self._recovery_counter < self._recovery_retry_calls:
+                return self._get_fallback_stats()
+            self._recovery_counter = 0
+            if self._try_reinit_nvml():
+                logger.info("GPU monitoring recovered (NVML re-initialized)")
+                self.available = True
+                self.consecutive_errors = 0
+                self.error_logged = False
+                # fall through to the normal NVML read below
+            else:
+                return self._get_fallback_stats()
 
         try:
             import pynvml
@@ -495,6 +512,22 @@ class NVMLMonitor(GPUMonitor):
                     self.available = False
 
             return self._get_fallback_stats()
+
+    def _try_reinit_nvml(self) -> bool:
+        """Attempt to re-initialize the NVML handle. Returns True if it works."""
+        try:
+            import pynvml
+            try:
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
+            pynvml.nvmlInit()
+            self.handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_index)
+            pynvml.nvmlDeviceGetUtilizationRates(self.handle)  # probe that it works
+            return True
+        except Exception as e:
+            logger.debug(f"NVML recovery attempt failed: {e}")
+            return False
 
     def _get_fallback_stats(self) -> Dict:
         """Fallback stats when GPU not available"""
