@@ -1483,11 +1483,18 @@ async def on_shutdown(app):
     await asyncio.gather(*coros)
     pcs.clear()
 
-    # Unload all active Ollama models so memory is returned to the OS
-    unload_tasks = []
+    # Unload all active Ollama models so memory is returned to the OS.
+    # Dedupe by (api_base, model): the same model selected in multiple sessions
+    # (several browser tabs/reconnects) would otherwise be unloaded once per
+    # session, producing misleading "Unloading 6 model(s)" logs for 2 real models.
+    unique_models = set()
     for session in sessions.values():
         for model_name, svc in session.get("vlm_services", {}).items():
-            unload_tasks.append(_unload_ollama_model(svc.api_base, model_name))
+            unique_models.add((svc.api_base, model_name))
+    unload_tasks = [
+        _unload_ollama_model(api_base, model_name)
+        for (api_base, model_name) in unique_models
+    ]
     if unload_tasks:
         logger.info(f"Unloading {len(unload_tasks)} Ollama model(s) on shutdown…")
         await asyncio.gather(*unload_tasks, return_exceptions=True)
